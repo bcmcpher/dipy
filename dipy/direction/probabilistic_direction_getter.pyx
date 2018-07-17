@@ -32,7 +32,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         double[:, :] vertices
         dict _adj_matrix
 
-    def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1,
+    def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1, cos_mat=None,
                  **kwargs):
         """Direction getter from a pmf generator.
 
@@ -49,6 +49,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         pmf_threshold : float [0., 1.]
             Used to remove direction from the probability mass function for
             selecting the tracking direction.
+        cos_mat : 3d ndarray produced from fxn
+            This contains the precomputed maximum curvature angle per voxel. 
+            It's precomputed to a cosine similarity so it can be more rapidly applied
         relative_peak_threshold : float in [0., 1.]
             Used for extracting initial tracking directions. Passed to
             peak_directions.
@@ -66,6 +69,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
+        self._cos_mat = cos_mat
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -104,6 +108,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         pmf = self._get_pmf(point)
         _len = pmf.shape[0]
+
+        ## recompute maximum angle based on the current voxel
+        self._set_adjacency_matrix(sphere, self._cos_mat[point])
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
