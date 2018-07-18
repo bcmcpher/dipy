@@ -79,9 +79,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         max_angle degrees from the key"""
         matrix = np.dot(self.vertices, self.vertices.T)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys = [tuple(v) for v in self._sph_vrt]
+        keys = [tuple(v) for v in self.vertices]
         adj_matrix = dict(zip(keys, matrix))
-        keys = [tuple(-v) for v in self._sph_vrt]
+        keys = [tuple(-v) for v in self.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
 
