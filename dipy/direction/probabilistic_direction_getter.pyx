@@ -29,126 +29,126 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     set to 0 and the result is normalized.
     """
     cdef:
-	double[:, :] vertices
-	dict _adj_matrix
+        double[:, :] vertices
+        dict _adj_matrix
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
-		 **kwargs):
-	"""Direction getter from a pmf generator.
+                 **kwargs):
+        """Direction getter from a pmf generator.
 
-	Parameters
-	----------
-	pmf_gen : PmfGen
-	    Used to get probability mass function for selecting tracking
-	    directions.
-	max_angle : float, [0, 90]
-	    The maximum allowed angle between incoming direction and new
-	    direction.
-	sphere : Sphere
-	    The set of directions to be used for tracking.
-	pmf_threshold : float [0., 1.]
-	    Used to remove direction from the probability mass function for
-	    selecting the tracking direction.
-	cos_mat : 3d ndarray produced from fxn
-	    This contains the precomputed maximum curvature angle per voxel. 
-	    It's precomputed to a cosine similarity so it can be more rapidly applied
-	relative_peak_threshold : float in [0., 1.]
-	    Used for extracting initial tracking directions. Passed to
-	    peak_directions.
-	min_separation_angle : float in [0, 90]
-	    Used for extracting initial tracking directions. Passed to
-	    peak_directions.
+        Parameters
+        ----------
+        pmf_gen : PmfGen
+            Used to get probability mass function for selecting tracking
+            directions.
+        max_angle : float, [0, 90]
+            The maximum allowed angle between incoming direction and new
+            direction.
+        sphere : Sphere
+            The set of directions to be used for tracking.
+        pmf_threshold : float [0., 1.]
+            Used to remove direction from the probability mass function for
+            selecting the tracking direction.
+        cos_mat : 3d ndarray produced from fxn
+            This contains the precomputed maximum curvature angle per voxel. 
+            It's precomputed to a cosine similarity so it can be more rapidly applied
+        relative_peak_threshold : float in [0., 1.]
+            Used for extracting initial tracking directions. Passed to
+            peak_directions.
+        min_separation_angle : float in [0, 90]
+            Used for extracting initial tracking directions. Passed to
+            peak_directions.
 
-	See also
-	--------
-	dipy.direction.peaks.peak_directions
+        See also
+        --------
+        dipy.direction.peaks.peak_directions
 
-	"""
-	PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, cos_mat, sphere,
-				       pmf_threshold, **kwargs)
-	# The vertices need to be in a contiguous array
-	print('PmfGenDirectionGetter.__init__ : begins')
-	self.vertices = self.sphere.vertices.copy()
-	print('trying initial assignment of adj_mat')
-	self._set_adjacency_matrix(self.cos_similarity)
-	self.cos_mat = cos_mat
-	print('assigned cos_mat')
-	#self._sph_vrt = sphere.vertices
-	#self._sph_vtt = sphere.vertices.T
-	print('PmfGenDirectionGetter.__init__ : ends')
+        """
+        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, cos_mat, sphere,
+                                       pmf_threshold, **kwargs)
+        # The vertices need to be in a contiguous array
+        print('PmfGenDirectionGetter.__init__ : begins')
+        self.vertices = self.sphere.vertices.copy()
+        print('trying initial assignment of adj_mat')
+        self._set_adjacency_matrix(self.cos_similarity)
+        self.cos_mat = cos_mat
+        print('assigned cos_mat')
+        #self._sph_vrt = sphere.vertices
+        #self._sph_vtt = sphere.vertices.T
+        print('PmfGenDirectionGetter.__init__ : ends')
 
     def _set_adjacency_matrix(self, cos_similarity):
-	"""Creates a dictionary where each key is a direction from sphere and
-	each value is a boolean array indicating which directions are less than
-	max_angle degrees from the key"""
-	matrix = np.dot(self.vertices, self.vertices.T)
-	matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-	keys = [tuple(v) for v in self.vertices]
-	adj_matrix = dict(zip(keys, matrix))
-	keys = [tuple(-v) for v in self.vertices]
-	adj_matrix.update(zip(keys, matrix))
-	self._adj_matrix = adj_matrix
+        """Creates a dictionary where each key is a direction from sphere and
+        each value is a boolean array indicating which directions are less than
+        max_angle degrees from the key"""
+        matrix = np.dot(self.vertices, self.vertices.T)
+        matrix = (abs(matrix) >= cos_similarity).astype('uint8')
+        keys = [tuple(v) for v in self.vertices]
+        adj_matrix = dict(zip(keys, matrix))
+        keys = [tuple(-v) for v in self.vertices]
+        adj_matrix.update(zip(keys, matrix))
+        self._adj_matrix = adj_matrix
 
     cdef int get_direction_c(self, double* point, double* direction):
-	"""Samples a pmf to updates ``direction`` array with a new direction.
+        """Samples a pmf to updates ``direction`` array with a new direction.
 
-	Parameters
-	----------
-	point : memory-view (or ndarray), shape (3,)
-	    The point in an image at which to lookup tracking directions.
-	direction : memory-view (or ndarray), shape (3,)
-	    Previous tracking direction.
+        Parameters
+        ----------
+        point : memory-view (or ndarray), shape (3,)
+            The point in an image at which to lookup tracking directions.
+        direction : memory-view (or ndarray), shape (3,)
+            Previous tracking direction.
 
-	Returns
-	-------
-	status : int
-	    Returns 0 `direction` was updated with a new tracking direction, or
-	    1 otherwise.
+        Returns
+        -------
+        status : int
+            Returns 0 `direction` was updated with a new tracking direction, or
+            1 otherwise.
 
-	"""
-	cdef:
-	    size_t i, idx, _len
-	    double[:] newdir, pmf
-	    double last_cdf, random_sample, mang
-	    np.uint8_t[:] bool_array
+        """
+        cdef:
+            size_t i, idx, _len
+            double[:] newdir, pmf
+            double last_cdf, random_sample, mang
+            np.uint8_t[:] bool_array
 
-	pmf = self._get_pmf(point)
-	_len = pmf.shape[0]
+        pmf = self._get_pmf(point)
+        _len = pmf.shape[0]
 
-	## find max cosine similarity from precomputed angle array
-	mang = self.cos_mat[(point[0], point[1], point[2])]
-	## recompute mask of angles that exceed threshold
-	self._set_adjacency_matrix(mang)
+        ## find max cosine similarity from precomputed angle array
+        mang = self.cos_mat[(point[0], point[1], point[2])]
+        ## recompute mask of angles that exceed threshold
+        self._set_adjacency_matrix(mang)
 
-	bool_array = self._adj_matrix[
-	    (direction[0], direction[1], direction[2])]
+        bool_array = self._adj_matrix[
+            (direction[0], direction[1], direction[2])]
 
-	for i in range(_len):
-	    if bool_array[i] == 0:
-		pmf[i] = 0.0
-	cumsum(&pmf[0], &pmf[0], _len)
-	last_cdf = pmf[_len - 1]
+        for i in range(_len):
+            if bool_array[i] == 0:
+                pmf[i] = 0.0
+        cumsum(&pmf[0], &pmf[0], _len)
+        last_cdf = pmf[_len - 1]
 
-	if last_cdf == 0:
-	    return 1
+        if last_cdf == 0:
+            return 1
 
-	random_sample = random() * last_cdf
-	idx = where_to_insert(&pmf[0], random_sample, _len)
+        random_sample = random() * last_cdf
+        idx = where_to_insert(&pmf[0], random_sample, _len)
 
-	newdir = self.vertices[idx, :]
-	# Update direction and return 0 for error
-	if direction[0] * newdir[0] \
-	 + direction[1] * newdir[1] \
-	 + direction[2] * newdir[2] > 0:
+        newdir = self.vertices[idx, :]
+        # Update direction and return 0 for error
+        if direction[0] * newdir[0] \
+         + direction[1] * newdir[1] \
+         + direction[2] * newdir[2] > 0:
 
-	    direction[0] = newdir[0]
-	    direction[1] = newdir[1]
-	    direction[2] = newdir[2]
-	else:
-	    direction[0] = -newdir[0]
-	    direction[1] = -newdir[1]
-	    direction[2] = -newdir[2]
-	return 0
+            direction[0] = newdir[0]
+            direction[1] = newdir[1]
+            direction[2] = newdir[2]
+        else:
+            direction[0] = -newdir[0]
+            direction[1] = -newdir[1]
+            direction[2] = -newdir[2]
+        return 0
 
 
 cdef class DeterministicMaximumDirectionGetter(ProbabilisticDirectionGetter):
@@ -157,57 +157,57 @@ cdef class DeterministicMaximumDirectionGetter(ProbabilisticDirectionGetter):
     """
 
     def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1,
-		 **kwargs):
-	ProbabilisticDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
-					      pmf_threshold, **kwargs)
+                 **kwargs):
+        ProbabilisticDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
+                                              pmf_threshold, **kwargs)
 
     cdef int get_direction_c(self, double* point, double* direction):
-	"""Find direction with the highest pmf to updates ``direction`` array
-	with a new direction.
-	Parameters
-	----------
-	point : memory-view (or ndarray), shape (3,)
-	    The point in an image at which to lookup tracking directions.
-	direction : memory-view (or ndarray), shape (3,)
-	    Previous tracking direction.
-	Returns
-	-------
-	status : int
-	    Returns 0 `direction` was updated with a new tracking direction, or
-	    1 otherwise.
-	"""
-	cdef:
-	    size_t _len, max_idx
-	    double[:] newdir, pmf
-	    double max_value
-	    np.uint8_t[:] bool_array
+        """Find direction with the highest pmf to updates ``direction`` array
+        with a new direction.
+        Parameters
+        ----------
+        point : memory-view (or ndarray), shape (3,)
+            The point in an image at which to lookup tracking directions.
+        direction : memory-view (or ndarray), shape (3,)
+            Previous tracking direction.
+        Returns
+        -------
+        status : int
+            Returns 0 `direction` was updated with a new tracking direction, or
+            1 otherwise.
+        """
+        cdef:
+            size_t _len, max_idx
+            double[:] newdir, pmf
+            double max_value
+            np.uint8_t[:] bool_array
 
-	pmf = self._get_pmf(point)
-	_len = pmf.shape[0]
+        pmf = self._get_pmf(point)
+        _len = pmf.shape[0]
 
-	bool_array = self._adj_matrix[
-	    (direction[0], direction[1], direction[2])]
+        bool_array = self._adj_matrix[
+            (direction[0], direction[1], direction[2])]
 
-	max_idx = 0
-	max_value = 0.0
-	for i in range(_len):
-	    if bool_array[i] > 0 and pmf[i] > max_value:
-		max_idx = i
-		max_value = pmf[i]
+        max_idx = 0
+        max_value = 0.0
+        for i in range(_len):
+            if bool_array[i] > 0 and pmf[i] > max_value:
+                max_idx = i
+                max_value = pmf[i]
 
-	if max_value <= 0:
-	    return 1
+        if max_value <= 0:
+            return 1
 
-	newdir = self.vertices[max_idx]
-	# Update direction
-	if direction[0] * newdir[0] \
-	 + direction[1] * newdir[1] \
-	 + direction[2] * newdir[2] > 0:
-	    direction[0] = newdir[0]
-	    direction[1] = newdir[1]
-	    direction[2] = newdir[2]
-	else:
-	    direction[0] = -newdir[0]
-	    direction[1] = -newdir[1]
-	    direction[2] = -newdir[2]
-	return 0
+        newdir = self.vertices[max_idx]
+        # Update direction
+        if direction[0] * newdir[0] \
+         + direction[1] * newdir[1] \
+         + direction[2] * newdir[2] > 0:
+            direction[0] = newdir[0]
+            direction[1] = newdir[1]
+            direction[2] = newdir[2]
+        else:
+            direction[0] = -newdir[0]
+            direction[1] = -newdir[1]
+            direction[2] = -newdir[2]
+        return 0
