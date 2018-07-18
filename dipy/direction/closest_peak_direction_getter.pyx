@@ -149,7 +149,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
             raise ValueError(msg)
 
         pmf_gen = SimplePmfGen(np.asarray(pmf,dtype=float))
-        return klass(pmf_gen, max_angle, cos_mat, sphere, pmf_threshold, **kwargs)
+        return klass(pmf_gen, max_angle, sphere, pmf_threshold, **kwargs)
 
     @classmethod
     def from_shcoeff(klass, shcoeff, max_angle, cos_mat, sphere=default_sphere,
