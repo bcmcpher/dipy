@@ -67,7 +67,7 @@ cdef class BaseDirectionGetter(DirectionGetter):
             raise ValueError("pmf threshold must be >= 0.")
         self.pmf_threshold = pmf_threshold
         self.cos_similarity = np.cos(np.deg2rad(max_angle))
-        self._cos_mat = cos_mat
+        self.cos_mat = cos_mat
         print('got to: BaseDirectionGetter.__init__')
 
     def _get_peak_directions(self, blob):
@@ -114,7 +114,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
 
     @classmethod
     def from_pmf(klass, pmf, max_angle, sphere=default_sphere,
-                 pmf_threshold=0.1, cos_mat=None, **kwargs):
+                 pmf_threshold=0.1, **kwargs):
         """Constructor for making a DirectionGetter from an array of Pmfs
 
         Parameters

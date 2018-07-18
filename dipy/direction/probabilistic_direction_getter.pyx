@@ -71,7 +71,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         print('trying initial assignment of adj_mat')
         self._set_adjacency_matrix(self.cos_similarity)
-        self._cos_mat = cos_mat
+        self.cos_mat = cos_mat
         #self._sph_vrt = sphere.vertices
         #self._sph_vtt = sphere.vertices.T
 
@@ -116,7 +116,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         ## recompute maximum angle based on the current voxel
-        mang = self._cos_mat[(point[0], point[1], point[2])]
+        mang = self.cos_mat[(point[0], point[1], point[2])]
         self._set_adjacency_matrix(mang)
 
         bool_array = self._adj_matrix[
