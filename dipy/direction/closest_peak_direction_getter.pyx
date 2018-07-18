@@ -59,11 +59,11 @@ cdef int closest_peak(np.ndarray[np.float_t, ndim=2] peak_dirs,
 cdef class BaseDirectionGetter(DirectionGetter):
     """A base class for dynamic direction getters"""
 
-    def __init__(self, pmf_gen, max_angle, cos_mat, sphere, pmf_threshold=.1, **kwargs):
+    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, **kwargs):
         self.sphere = sphere
         self._pf_kwargs = kwargs
         self.pmf_gen = pmf_gen
-        self.cos_mat = cos_mat
+        #self.cos_mat = cos_mat
         if pmf_threshold < 0:
             raise ValueError("pmf threshold must be >= 0.")
         self.pmf_threshold = pmf_threshold
