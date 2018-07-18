@@ -59,7 +59,7 @@ cdef int closest_peak(np.ndarray[np.float_t, ndim=2] peak_dirs,
 cdef class BaseDirectionGetter(DirectionGetter):
     """A base class for dynamic direction getters"""
 
-    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, **kwargs):
+    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, cos_mat, **kwargs):
         self.sphere = sphere
         self._pf_kwargs = kwargs
         self.pmf_gen = pmf_gen
@@ -151,7 +151,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
 
     @classmethod
     def from_shcoeff(klass, shcoeff, max_angle, sphere=default_sphere,
-                     pmf_threshold=0.1, basis_type=None, **kwargs):
+                     pmf_threshold=0.1, basis_type=None, cos_mat, **kwargs):
         """Probabilistic direction getter from a distribution of directions
         on the sphere
 
@@ -175,6 +175,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
         basis_type : name of basis
             The basis that ``shcoeff`` are associated with.
             ``dipy.reconst.shm.real_sym_sh_basis`` is used by default.
+        cos_mat : ndarray of precomputed max angles
         relative_peak_threshold : float in [0., 1.]
             Used for extracting initial tracking directions. Passed to
             peak_directions.
@@ -189,7 +190,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
         """
         pmf_gen = SHCoeffPmfGen(np.asarray(shcoeff,dtype=float), sphere,
                                 basis_type)
-        return klass(pmf_gen, max_angle, sphere, pmf_threshold, **kwargs)
+        return klass(pmf_gen, max_angle, sphere, pmf_threshold, cos_mat, **kwargs)
 
 
 cdef class ClosestPeakDirectionGetter(PmfGenDirectionGetter):

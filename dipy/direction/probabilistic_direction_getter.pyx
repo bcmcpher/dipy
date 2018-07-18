@@ -32,7 +32,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         double[:, :] vertices
         dict _adj_matrix
 
-    def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1, cos_mat=None,
+    def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1, cos_mat,
                  **kwargs):
         """Direction getter from a pmf generator.
 
@@ -65,7 +65,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         """
         PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
-                                       pmf_threshold, **kwargs)
+                                       pmf_threshold, cos_mat, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(self.cos_similarity)
