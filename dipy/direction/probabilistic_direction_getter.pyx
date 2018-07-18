@@ -111,7 +111,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## recompute maximum angle based on the current voxel
         mang = self._cos_mat[(point[0], point[1], point[2])]
-        #self._set_adjacency_matrix(sphere, mang)
+        self._set_adjacency_matrix(sphere, mang)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
