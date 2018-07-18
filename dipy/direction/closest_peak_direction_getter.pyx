@@ -59,7 +59,7 @@ cdef int closest_peak(np.ndarray[np.float_t, ndim=2] peak_dirs,
 cdef class BaseDirectionGetter(DirectionGetter):
     """A base class for dynamic direction getters"""
 
-    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, cos_mat, **kwargs):
+    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, cos_mat=None, **kwargs):
         self.sphere = sphere
         self._pf_kwargs = kwargs
         self.pmf_gen = pmf_gen
@@ -151,7 +151,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
 
     @classmethod
     def from_shcoeff(klass, shcoeff, max_angle, sphere=default_sphere,
-                     pmf_threshold=0.1, basis_type=None, cos_mat, **kwargs):
+                     pmf_threshold=0.1, basis_type=None, cos_mat=None, **kwargs):
         """Probabilistic direction getter from a distribution of directions
         on the sphere
 
