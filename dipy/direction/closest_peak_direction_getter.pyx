@@ -67,6 +67,8 @@ cdef class BaseDirectionGetter(DirectionGetter):
             raise ValueError("pmf threshold must be >= 0.")
         self.pmf_threshold = pmf_threshold
         self.cos_similarity = np.cos(np.deg2rad(max_angle))
+        self._cos_mat = cos_mat
+        print('got to: BaseDirectionGetter.__init__')
 
     def _get_peak_directions(self, blob):
         """Gets directions using parameters provided at init.
@@ -190,6 +192,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
         """
         pmf_gen = SHCoeffPmfGen(np.asarray(shcoeff,dtype=float), sphere,
                                 basis_type)
+        print('got to: from_shcoeff')
         return klass(pmf_gen, max_angle, sphere, pmf_threshold, cos_mat, **kwargs)
 
 
