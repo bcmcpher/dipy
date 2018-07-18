@@ -70,12 +70,14 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         self._cos_mat = cos_mat
+        self._sph_vrt = sphere.vertices
+        self._sph_vtt = sphere.vertices.T
 
-    def _set_adjacency_matrix(self, sphere, cos_similarity):
+    def _set_adjacency_matrix(self, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(sphere.vertices, sphere.vertices.T)
+        matrix = np.dot(self._sph_vrt, self.sph.vtt)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
         keys = [tuple(v) for v in sphere.vertices]
         adj_matrix = dict(zip(keys, matrix))
@@ -111,7 +113,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## recompute maximum angle based on the current voxel
         mang = self._cos_mat[(point[0], point[1], point[2])]
-        self._set_adjacency_matrix(sphere, mang)
+        self._set_adjacency_matrix(mang)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
