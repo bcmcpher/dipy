@@ -32,7 +32,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         double[:, :] vertices
         dict _adj_matrix
 
-    def __init__(self, pmf_gen, max_angle, sphere=None, pmf_threshold=0.1, cos_mat=None,
+    def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
                  **kwargs):
         """Direction getter from a pmf generator.
 
@@ -64,24 +64,24 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         dipy.direction.peaks.peak_directions
 
         """
-        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
-                                       pmf_threshold, cos_mat, **kwargs)
+        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, cos_mat, sphere,
+                                       pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
-        print('got to: PmfGenDirectionGetter.__init__')
+        print('PmfGenDirectionGetter.__init__ : begins')
         self.vertices = self.sphere.vertices.copy()
         print('trying initial assignment of adj_mat')
         self._set_adjacency_matrix(self.cos_similarity)
         self.cos_mat = cos_mat
+        print('assigned cos_mat')
         #self._sph_vrt = sphere.vertices
         #self._sph_vtt = sphere.vertices.T
+        print('PmfGenDirectionGetter.__init__ : ends')
 
     def _set_adjacency_matrix(self, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        print('running set_adj_mat: before verts')
         matrix = np.dot(self.vertices, self.vertices.T)
-        print('running set_adj_mat: after verts')
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
         keys = [tuple(v) for v in self.vertices]
         adj_matrix = dict(zip(keys, matrix))
@@ -115,8 +115,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         pmf = self._get_pmf(point)
         _len = pmf.shape[0]
 
-        ## recompute maximum angle based on the current voxel
+        ## find max cosine similarity from precomputed angle array
         mang = self.cos_mat[(point[0], point[1], point[2])]
+        ## recompute mask of angles that exceed threshold
         self._set_adjacency_matrix(mang)
 
         bool_array = self._adj_matrix[
