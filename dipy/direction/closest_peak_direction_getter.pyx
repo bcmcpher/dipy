@@ -63,11 +63,11 @@ cdef class BaseDirectionGetter(DirectionGetter):
         self.sphere = sphere
         self._pf_kwargs = kwargs
         self.pmf_gen = pmf_gen
+        self.cos_mat = cos_mat
         if pmf_threshold < 0:
             raise ValueError("pmf threshold must be >= 0.")
         self.pmf_threshold = pmf_threshold
         self.cos_similarity = np.cos(np.deg2rad(max_angle))
-        self.cos_mat = cos_mat
         print('BaseDirectionGetter.__init__ : assigned cos_mat')
 
     def _get_peak_directions(self, blob):
