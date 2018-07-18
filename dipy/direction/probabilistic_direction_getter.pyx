@@ -29,8 +29,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     set to 0 and the result is normalized.
     """
     cdef:
-	double[:, :] vertices
-	dict _adj_matrix
+	double[:, :] 
+	qverticesdict _adj_matrix
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
 		 **kwargs):
