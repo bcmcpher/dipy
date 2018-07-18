@@ -68,7 +68,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
-        self._set_adjacency_matrix(sphere, self.cos_similarity)
+        self._set_adjacency_matrix(self.cos_similarity)
         self._cos_mat = cos_mat
         self._sph_vrt = sphere.vertices
         self._sph_vtt = sphere.vertices.T
