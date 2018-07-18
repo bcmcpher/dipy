@@ -59,7 +59,7 @@ cdef int closest_peak(np.ndarray[np.float_t, ndim=2] peak_dirs,
 cdef class BaseDirectionGetter(DirectionGetter):
     """A base class for dynamic direction getters"""
 
-    def __init__(self, pmf_gen, max_angle, sphere, pmf_threshold=.1, cos_mat=None, **kwargs):
+    def __init__(self, pmf_gen, max_angle, cos_mat, sphere, pmf_threshold=.1, **kwargs):
         self.sphere = sphere
         self._pf_kwargs = kwargs
         self.pmf_gen = pmf_gen
@@ -113,7 +113,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
     """A base class for direction getter using a pmf"""
 
     @classmethod
-    def from_pmf(klass, pmf, max_angle, sphere=default_sphere,
+    def from_pmf(klass, pmf, max_angle, cos_mat, sphere=default_sphere,
                  pmf_threshold=0.1, **kwargs):
         """Constructor for making a DirectionGetter from an array of Pmfs
 
@@ -149,11 +149,11 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
             raise ValueError(msg)
 
         pmf_gen = SimplePmfGen(np.asarray(pmf,dtype=float))
-        return klass(pmf_gen, max_angle, sphere, pmf_threshold, **kwargs)
+        return klass(pmf_gen, max_angle, cos_mat, sphere, pmf_threshold, **kwargs)
 
     @classmethod
-    def from_shcoeff(klass, shcoeff, max_angle, sphere=default_sphere,
-                     pmf_threshold=0.1, basis_type=None, cos_mat=None, **kwargs):
+    def from_shcoeff(klass, shcoeff, max_angle, cos_mat, sphere=default_sphere,
+                     pmf_threshold=0.1, basis_type=None, **kwargs):
         """Probabilistic direction getter from a distribution of directions
         on the sphere
 
