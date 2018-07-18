@@ -64,7 +64,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         dipy.direction.peaks.peak_directions
 
         """
-        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, cos_mat, sphere,
+        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         print('PmfGenDirectionGetter.__init__ : begins')
