@@ -78,6 +78,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #self.cos_mat = cos_mat
         #print('assigned cos_mat')
         print('PDG.__init__ : ends')
+        print('recompute adj_mat')
+        self._set_adjacency_matrix(sphere, cos_mat[72, 87, 73])
+        print('recomputed adj_mat')
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -121,7 +124,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #mang = self.cos_mat[(point[0], point[1], point[2])]
         mang=0.99
         ## recompute mask of angles that exceed threshold
-        #self._set_adjacency_matrix(mang)
+        #self._set_adjacency_matrix(sphere, mang)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
