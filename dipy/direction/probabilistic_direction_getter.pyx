@@ -69,7 +69,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
-        self._set_adjacency_matrix(sphere, self.cos_similarity)
+        self._set_adjacency_matrix(sphere.vertices, self.cos_similarity)
         self.cos_mat = self.cos_mat ## why won't this work?
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
@@ -79,11 +79,11 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(sphere.vertices, sphere.vertices.T)
+        matrix = np.dot(sphere, sphere.T)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys = [tuple(v) for v in sphere.vertices]
+        keys = [tuple(v) for v in sphere]
         adj_matrix = dict(zip(keys, matrix))
-        keys = [tuple(-v) for v in sphere.vertices]
+        keys = [tuple(-v) for v in sphere]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
         print('computed adj_mat')
@@ -130,7 +130,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
-        self._set_adjacency_matrix(sphere, coss)
+        self._set_adjacency_matrix(self.vertices, coss)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
