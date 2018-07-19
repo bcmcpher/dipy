@@ -30,6 +30,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """
     cdef:
         double[:, :] vertices
+        double[:, :, :] cos_mat
         dict _adj_matrix
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,

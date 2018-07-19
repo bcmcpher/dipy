@@ -190,7 +190,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
         """
         pmf_gen = SHCoeffPmfGen(np.asarray(shcoeff,dtype=float), sphere,
                                 basis_type)
-        print('cos_mat is this big: ' + str(cos_mat.shape))
+
         return klass(pmf_gen, max_angle, cos_mat, sphere, pmf_threshold, **kwargs)
 
 
