@@ -118,7 +118,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         # I need to know what point is now
-        printf("point: %d, %d, %d" % point[0], point[1], point[2])
+        print("point: %d, %d, %d" % point[0], point[1], point[2])
 
         ## find max cosine similarity from precomputed angle array
         ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
