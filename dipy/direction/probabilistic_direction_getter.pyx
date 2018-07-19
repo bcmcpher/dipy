@@ -121,9 +121,6 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         ## find max cosine similarity from precomputed angle array
         #mang = self.cos_mat[(point[0], point[1], point[2])]
         mang=2.5
-        printf("%d", point[0])
-        printf("%d", point[1])
-        printf("%d", point[2])
         ## recompute mask of angles that exceed threshold
         #self._set_adjacency_matrix(sphere, mang)
 
