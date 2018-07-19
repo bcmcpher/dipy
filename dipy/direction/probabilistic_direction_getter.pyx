@@ -86,6 +86,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
+        print('computed adj_mat')
 
     def _set_cos_mat(self, cos_mat):
         self.cos_mat = cos_mat
@@ -118,7 +119,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         # I need to know what point is now
-        print("point: %d, %d, %d" % point[0], point[1], point[2])
+        #print("point: %d, %d, %d" % point[0], point[1], point[2])
 
         ## find max cosine similarity from precomputed angle array
         ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
@@ -129,7 +130,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
-        #self._set_adjacency_matrix(sphere, coss)
+        self._set_adjacency_matrix(sphere, coss)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
