@@ -71,6 +71,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         self.cos_mat = self.cos_mat ## why won't this work?
+        print('cos_mat shape: ' + str(cos_mat.shape))
+        self._set_cos_mat(cos_mat)
         #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
@@ -84,6 +86,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
+
+    def _set_cos_mat(self, cos_mat):
+        self.cos_mat = cos_mat
 
     ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
