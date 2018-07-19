@@ -71,9 +71,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         self.cos_mat = self.cos_mat ## why won't this work?
-        print('cos_mat shape: ' + str(cos_mat.shape))
+        #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
-        print('self.cos_mat size: ' + str(self.cos_mat.shape))
+        #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -121,7 +121,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
         #coss = self.cos_mat[
         #    (point[0], point[1], point[2])]
-        coss=0.8660
+        #coss = 0.8660
+        coss = self.cos_mat[ 74, 87, 73 ]
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
