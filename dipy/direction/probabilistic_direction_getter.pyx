@@ -30,7 +30,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """
     cdef:
         double[:, :] vertices
-        double[:, :, :] cos_mat
+        double[:, :, :] cos_mat ## try and define it as a 3d C array?
         dict _adj_matrix
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
@@ -68,19 +68,10 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
-        print('PmfGenDirectionGetter.__init__ : succeeds')
-        print('cos_mat is this big: ' + str(cos_mat.shape))
-        print('a value in cos_mat is: ' + str(cos_mat[72, 87, 73]))
         self.vertices = self.sphere.vertices.copy()
-        print('trying initial assignment of adj_mat')
         self._set_adjacency_matrix(sphere, self.cos_similarity)
-        print('finished initial assignment of adj_mat')
-        #self.cos_mat = cos_mat
-        #print('assigned cos_mat')
-        print('PDG.__init__ : ends')
-        print('recompute adj_mat')
-        self._set_adjacency_matrix(sphere, cos_mat[72, 87, 73])
-        print('recomputed adj_mat')
+        #self.cos_mat = cos_mat ## why won't this work?
+        self._set_cos_mat(cos_mat)
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -94,6 +85,11 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
 
+    def _set_cos_mat(self, cos_mat):
+        """ assign cos_mat with a method to access it"""
+        self._cos_mat = cos_mat.copy()
+
+    ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
         """Samples a pmf to updates ``direction`` array with a new direction.
 
@@ -121,9 +117,13 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         ## find max cosine similarity from precomputed angle array
-        #mang = self.cos_mat[(point[0], point[1], point[2])]
-        mang=0.99
+        ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
+        #mang = self.cos_mat[
+        #    (point[0], point[1], point[2])]
+        mang=0.8660
+
         ## recompute mask of angles that exceed threshold
+        ## is this even accessible here? _adj_matrix is...
         #self._set_adjacency_matrix(sphere, mang)
 
         bool_array = self._adj_matrix[
