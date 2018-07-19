@@ -18,7 +18,7 @@ from dipy.direction.pmf cimport PmfGen, SimplePmfGen, SHCoeffPmfGen
 from dipy.utils.fast_numpy cimport cumsum, where_to_insert
 
 
-cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
+cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter, cos_mat):
     """Randomly samples direction of a sphere based on probability mass
     function (pmf).
 
@@ -71,7 +71,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         print('cos_mat size: ' + str(cos_mat.shape))
-        #self.cos_mat = self.cos_mat ## why won't this work?
+        self.cos_mat = self.cos_mat ## why won't this work?
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
