@@ -91,7 +91,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
 
-    cdef int get_direction_c(self, double* point, double* direction, double* cmat):
+    cdef int get_direction_c(self, double* point, double* direction):
         """Samples a pmf to updates ``direction`` array with a new direction.
 
         Parameters
@@ -110,7 +110,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         """
         cdef:
             size_t i, idx, _len
-            double[:] newdir, pmf, cmat
+            double[:] newdir, pmf
             double last_cdf, random_sample, mang
             np.uint8_t[:] bool_array
 
@@ -118,8 +118,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         ## find max cosine similarity from precomputed angle array
-        #mang = self.cos_mat[(point[0], point[1], point[2])]
-        mang = cmat[(point[0], point[1], point[2])]
+        mang = self.cos_mat[(point[0], point[1], point[2])]
         print(mang)
         ## recompute mask of angles that exceed threshold
         #self._set_adjacency_matrix(sphere, mang)
