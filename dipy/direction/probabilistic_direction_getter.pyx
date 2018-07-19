@@ -127,10 +127,12 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #    (point[0], point[1], point[2])]
         #coss = 0.8660
         coss = self.cos_mat[ 74, 87, 73 ]
+        print(coss)
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
-        self._set_adjacency_matrix(self.vertices, coss)
+        #self._set_adjacency_matrix(self.vertices, coss) 
+        ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
