@@ -73,7 +73,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.cos_mat = self.cos_mat ## why won't this work?
         print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
-        #print('self.cos_mat size: ' + str(self.cos_mat.shape))
+        print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
