@@ -64,6 +64,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         dipy.direction.peaks.peak_directions
 
         """
+        self.cos_mat = cos_mat
         PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
@@ -118,8 +119,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         ## find max cosine similarity from precomputed angle array
-        mang = self.cos_mat[(point[0], point[1], point[2])]
-        print(mang)
+        #mang = self.cos_mat[(point[0], point[1], point[2])]
+        mang=2.5
+        print(point)
         ## recompute mask of angles that exceed threshold
         #self._set_adjacency_matrix(sphere, mang)
 
