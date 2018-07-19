@@ -69,6 +69,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         # The vertices need to be in a contiguous array
         print('PmfGenDirectionGetter.__init__ : succeeds')
         print('cos_mat is this big: ' + str(cos_mat.shape))
+        print('a value in cos_mat is: ' + str(cos_mat[72, 87, 73]))
         self.vertices = self.sphere.vertices.copy()
         print('trying initial assignment of adj_mat')
         self._set_adjacency_matrix(sphere, self.cos_similarity)
@@ -117,7 +118,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         #mang = self.cos_mat[(point[0], point[1], point[2])]
-        mang=2.5
+        mang=0.99
         ## recompute mask of angles that exceed threshold
         #self._set_adjacency_matrix(mang)
 
