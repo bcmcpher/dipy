@@ -67,27 +67,25 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
-        print('PmfGenDirectionGetter.__init__ : begins')
+        print('PmfGenDirectionGetter.__init__ : succeeds')
         print('cos_mat is this big: ' + str(cos_mat.shape))
         self.vertices = self.sphere.vertices.copy()
         print('trying initial assignment of adj_mat')
-        self._set_adjacency_matrix(self.cos_similarity)
+        self._set_adjacency_matrix(sphere, self.cos_similarity)
         print('finished initial assignment of adj_mat')
         #self.cos_mat = cos_mat
-        print('assigned cos_mat')
-        #self._sph_vrt = sphere.vertices
-        #self._sph_vtt = sphere.vertices.T
-        print('PmfGenDirectionGetter.__init__ : ends')
+        #print('assigned cos_mat')
+        print('PDG.__init__ : ends')
 
-    def _set_adjacency_matrix(self, cos_similarity):
+    def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(self.vertices, self.vertices.T)
+        matrix = np.dot(sphere.vertices, sphere.vertices.T)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys = [tuple(v) for v in self.vertices]
+        keys = [tuple(v) for v in sphere.vertices]
         adj_matrix = dict(zip(keys, matrix))
-        keys = [tuple(-v) for v in self.vertices]
+        keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
 
