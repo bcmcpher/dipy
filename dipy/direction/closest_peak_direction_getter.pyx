@@ -67,7 +67,7 @@ cdef class BaseDirectionGetter(DirectionGetter):
             raise ValueError("pmf threshold must be >= 0.")
         self.pmf_threshold = pmf_threshold
         self.cos_similarity = np.cos(np.deg2rad(max_angle))
-        self.cos_mat = cos_mat
+        #self.cos_mat = cos_mat
 
     def _get_peak_directions(self, blob):
         """Gets directions using parameters provided at init.
