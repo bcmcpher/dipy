@@ -18,7 +18,7 @@ from dipy.direction.pmf cimport PmfGen, SimplePmfGen, SHCoeffPmfGen
 from dipy.utils.fast_numpy cimport cumsum, where_to_insert
 
 
-cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter, cos_mat):
+cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """Randomly samples direction of a sphere based on probability mass
     function (pmf).
 
@@ -32,6 +32,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter, cos_mat):
         double[:, :] vertices
         double[:, :, :] cos_mat ## try and define it as a 3d C array?
         dict _adj_matrix
+
+    self.cos_mat = cos_mat
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
                  **kwargs):
