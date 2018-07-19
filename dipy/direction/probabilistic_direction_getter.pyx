@@ -71,7 +71,6 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         #self.cos_mat = cos_mat ## why won't this work?
-        self._set_cos_mat(cos_mat)
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -84,10 +83,6 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
-
-    def _set_cos_mat(self, cos_mat):
-        """ assign cos_mat with a method to access it"""
-        self._cos_mat = cos_mat.copy()
 
     ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
@@ -110,7 +105,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         cdef:
             size_t i, idx, _len
             double[:] newdir, pmf
-            double last_cdf, random_sample, mang
+            double last_cdf, random_sample, coss
             np.uint8_t[:] bool_array
 
         pmf = self._get_pmf(point)
@@ -118,13 +113,13 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        #mang = self.cos_mat[
+        #coss = self.cos_mat[
         #    (point[0], point[1], point[2])]
-        mang=0.8660
+        coss=0.8660
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
-        #self._set_adjacency_matrix(sphere, mang)
+        #self._set_adjacency_matrix(sphere, coss)
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
