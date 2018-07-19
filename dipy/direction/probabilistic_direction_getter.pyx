@@ -65,12 +65,12 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         dipy.direction.peaks.peak_directions
 
         """
-        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, sphere,
+        PmfGenDirectionGetter.__init__(self, pmf_gen, max_angle, cos_mat, sphere,
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere, self.cos_similarity)
-        #self.cos_mat = cos_mat ## why won't this work?
+        self.cos_mat = cos_mat ## why won't this work?
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and

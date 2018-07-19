@@ -112,7 +112,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
     """A base class for direction getter using a pmf"""
 
     @classmethod
-    def from_pmf(klass, pmf, max_angle, sphere=default_sphere,
+    def from_pmf(klass, pmf, max_angle, cos_mat, sphere=default_sphere,
                  pmf_threshold=0.1, **kwargs):
         """Constructor for making a DirectionGetter from an array of Pmfs
 
@@ -148,7 +148,7 @@ cdef class PmfGenDirectionGetter(BaseDirectionGetter):
             raise ValueError(msg)
 
         pmf_gen = SimplePmfGen(np.asarray(pmf,dtype=float))
-        return klass(pmf_gen, max_angle, sphere, pmf_threshold, **kwargs)
+        return klass(pmf_gen, max_angle, cos_mat, sphere, pmf_threshold, **kwargs)
 
     @classmethod
     def from_shcoeff(klass, shcoeff, max_angle, cos_mat, sphere=default_sphere,
