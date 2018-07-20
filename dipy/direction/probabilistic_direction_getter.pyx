@@ -70,9 +70,9 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere.vertices, sphere.vertices.T, self.cos_similarity)
-        self.cos_mat = self.cos_mat
+        #self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
-        self._set_cos_mat(cos_mat)
+        self._set_cos_mat(cos_mat, sphere)
         #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, vert, tvrt, cos_similarity):
@@ -127,8 +127,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         p2 = np.floor(point[1]).astype('uint8')
         p3 = np.floor(point[2]).astype('uint8')
         coss = self.cos_mat[p1, p2, p3]
-        #print("x: " + str(p1) + " y: " + str(p1) + " z: " + str(p2) + " ; coss: " + str(coss))
-        #coss = self.cos_mat[ 74, 87, 73 ]
+        #print("i: " + str(p1) + " j: " + str(p1) + " k: " + str(p2) + " ; coss: " + str(coss))
         
         ## recompute mask of angles that exceed threshold
         self._set_adjacency_matrix(self.vert, self.tvrt, coss) 
