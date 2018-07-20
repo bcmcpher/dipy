@@ -74,7 +74,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat, sphere)
-        #print('self.cos_mat size: ' + str(self.cos_mat.shape))
+        print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -113,17 +113,18 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         """
         cdef:
-            size_t i, idx, _len
+            size_t i, idx, _len, z
             double tmp[1]
             double[:] newdir, pmf, val=tmp
-            double last_cdf, random_sample, coss
+            double[:,:,:,:] cos_mat2=self.cos_mat
+            double last_cdf, random_sample
             np.uint8_t[:] bool_array
 
         pmf = self._get_pmf(point)
         _len = pmf.shape[0]
 
         ## interpolate cos_mat max angle at point
-        z = trilinear_iterpolate4d_c(self.cos_mat, point, val)
+        z = trilinear_iterpolate4d_c(cos_mat2, point, val)
         
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
