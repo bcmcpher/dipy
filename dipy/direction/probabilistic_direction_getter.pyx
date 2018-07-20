@@ -16,7 +16,7 @@ from dipy.direction.closest_peak_direction_getter cimport PmfGenDirectionGetter
 from dipy.direction.peaks import peak_directions, default_sphere
 from dipy.direction.pmf cimport PmfGen, SimplePmfGen, SHCoeffPmfGen
 from dipy.utils.fast_numpy cimport cumsum, where_to_insert
-
+from dipy.tracking.local.interpolation import trilinear_interpolate4d_c
 
 cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """Randomly samples direction of a sphere based on probability mass
@@ -30,7 +30,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """
     cdef:
         double[:, :] vertices
-        double[:, :, :] cos_mat ## try and define it as a 3d C array?
+        #double[:, :, :] cos_mat ## try and define it as a 3d C array?
+        double[:] val
         dict _adj_matrix
 
     def __init__(self, pmf_gen, max_angle, cos_mat, sphere=None, pmf_threshold=0.1,
@@ -89,7 +90,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         print('computed adj_mat')
 
     def _set_cos_mat(self, cos_mat, sphere):
-        self.cos_mat = cos_mat
+        self.cos_mat = cos_mat[:,:,:,None]
         #self.vert = sphere.vertices
         #self.tvrt = sphere.vertices.T
 
@@ -113,24 +114,29 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         """
         cdef:
             size_t i, idx, _len
-            double[:] newdir, pmf
+            double tmp[1]
+            double[:] newdir, pmf, val=tmp
             double last_cdf, random_sample, coss
             np.uint8_t[:] bool_array
 
         pmf = self._get_pmf(point)
         _len = pmf.shape[0]
 
+        ## interpolate cos_mat max angle at point
+        trilinear_iterpolate4d_c(self.cos_mat, point, val)
+        
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
         ## just round down?
-        p1 = np.floor(point[0]).astype('uint8')
-        p2 = np.floor(point[1]).astype('uint8')
-        p3 = np.floor(point[2]).astype('uint8')
-        coss = self.cos_mat[p1, p2, p3]
+        #p1 = np.floor(point[0]).astype('uint8')
+        #p2 = np.floor(point[1]).astype('uint8')
+        #p3 = np.floor(point[2]).astype('uint8')
+        #coss = self.cos_mat[p1, p2, p3]
         #print("i: " + str(p1) + " j: " + str(p1) + " k: " + str(p2) + " ; coss: " + str(coss))
-        
+        print("val: " + str(val[0]))
+
         ## recompute mask of angles that exceed threshold
-        self._set_adjacency_matrix(self.sphere, coss) 
+        self._set_adjacency_matrix(self.sphere, val) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
