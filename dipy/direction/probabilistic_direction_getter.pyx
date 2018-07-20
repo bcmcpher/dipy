@@ -120,7 +120,8 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        p1 = np.floor(point[0]).copy().astype("int") 
+        p1 = np.floor(point[0])
+        p1 = p1.astype('int')
         print(str(p1))
         #p2 = np.floor(point[1]).astype("int") 
         #p3 = np.floor(point[2]).astype("int") 
