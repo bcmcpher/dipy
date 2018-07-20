@@ -126,7 +126,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #coss = self.cos_mat[
         #    (point[0], point[1], point[2])]
         #coss = self.cos_mat[ 74, 87, 73 ]
-        print("x: " + point[0] + " y: " + point[1] + " z: " + point[2])
+        print("x: " + str(point[0]) + " y: " + str(point[1]) + " z: " + str(point[2]))
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
