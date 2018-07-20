@@ -112,21 +112,21 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         cdef:
             size_t i, idx, _len
             double[:] newdir, pmf
-            double last_cdf, random_sample, coss
+            double last_cdf, random_sample, coss, i, j, k
             np.uint8_t[:] bool_array
 
         pmf = self._get_pmf(point)
         _len = pmf.shape[0]
 
-        # I need to know what point is now
-        #print("point: %d, %d, %d" % point[0], point[1], point[2])
-
         ## find max cosine similarity from precomputed angle array
-        ## maybe point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        #coss = self.cos_mat[
-        #    (point[0], point[1], point[2])]
+        ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
+        i = np.floor(point[0])
+        j = np.floor(point[1])
+        k = np.floor(point[2])
+        coss = self.cos_mat[i, j, k]
+        print("ijk: " + str(i) + ", " + str(j) + ", " + str(k) "; ", + str(coss))
         #coss = self.cos_mat[ 74, 87, 73 ]
-        print("x: " + str(point[0]) + " y: " + str(point[1]) + " z: " + str(point[2]))
+        #print("x: " + str(point[0]) + "; y: " + str(point[1]) + ;" z: " + str(point[2]))
 
         ## recompute mask of angles that exceed threshold
         ## is this even accessible here? _adj_matrix is...
