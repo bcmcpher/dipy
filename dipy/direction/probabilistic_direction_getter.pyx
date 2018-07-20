@@ -122,10 +122,10 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
         #coss = self.cos_mat[(point[0], point[1], point[2])]
         coss = self.cos_mat[ 74, 87, 73 ]
-        print("x: " + str(point[0]) + "; y: " + str(point[1]) + "; z: " + str(point[2]))
+        #print("x: " + str(point[0]) + "; y: " + str(point[1]) + "; z: " + str(point[2]))
 
         ## recompute mask of angles that exceed threshold
-        #self._set_adjacency_matrix(self.vertices, coss) 
+        self._set_adjacency_matrix(self.vertices, coss) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
