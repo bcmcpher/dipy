@@ -123,7 +123,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         _len = pmf.shape[0]
 
         ## interpolate cos_mat max angle at point
-        trilinear_iterpolate4d_c(self.cos_mat, point, val)
+        z = trilinear_iterpolate4d_c(self.cos_mat, point, val)
         
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
