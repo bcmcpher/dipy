@@ -120,10 +120,14 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        #coss = self.cos_mat[(point[0], point[1], point[2])]
+        p1 = np.floor(point[0]).astype('uint8')
+        p2 = np.floor(point[1]).astype('uint8')
+        p3 = np.floor(point[2]).astype('uint8')
+        coss = self.cos_mat[p1, p2, p3]
+        print("x: " + str(p1) + " y: " + str(p1) + " z: " + str(p2) + " ; coss: " + str(coss))
         #coss = self.cos_mat[ 74, 87, 73 ]
         #print("x: " + str(point[0]) + "; y: " + str(point[1]) + "; z: " + str(point[2]))
-        print("x: " + str(np.floor(point[0]).astype('uint8')))
+        #print("x: " + str(np.floor(point[0]).astype('uint8')))
 
         ## recompute mask of angles that exceed threshold
         #self._set_adjacency_matrix(self.vertices, coss) 
