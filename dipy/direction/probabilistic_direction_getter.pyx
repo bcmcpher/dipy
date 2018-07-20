@@ -18,6 +18,7 @@ from dipy.direction.pmf cimport PmfGen, SimplePmfGen, SHCoeffPmfGen
 from dipy.utils.fast_numpy cimport cumsum, where_to_insert
 
 from dipy.tracking.local.interpolation cimport trilinear_interpolate4d_c
+#from dipy.tracking.local.interpolation import trilinear_interpolate4d
 
 cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """Randomly samples direction of a sphere based on probability mass
@@ -74,7 +75,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self._set_adjacency_matrix(sphere, self.cos_similarity)
         #self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
-        self._set_cos_mat(cos_mat, sphere)
+        self._set_cos_mat(cos_mat)
         print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
@@ -90,7 +91,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         self._adj_matrix = adj_matrix
         print('computed adj_mat')
 
-    def _set_cos_mat(self, cos_mat, sphere):
+    def _set_cos_mat(self, cos_mat):
         self.cos_mat = cos_mat[:,:,:,None]
         #self.vert = sphere.vertices
         #self.tvrt = sphere.vertices.T
@@ -126,6 +127,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## interpolate cos_mat max angle at point
         z = trilinear_iterpolate4d_c(cos_mat2, point, val)
+        #val = trilinear_interpolate4d(cos_mat2, point)
         
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
