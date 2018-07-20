@@ -112,7 +112,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         cdef:
             size_t i, idx, _len
             double[:] newdir, pmf
-            double last_cdf, random_sample, coss, p1, p2, p3
+            double last_cdf, random_sample, coss
             np.uint8_t[:] bool_array
 
         pmf = self._get_pmf(point)
@@ -120,18 +120,11 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        p1 = np.floor(point[0])
-        p1 = p1.astype('int')
-        print(str(p1))
-        #p2 = np.floor(point[1]).astype("int") 
-        #p3 = np.floor(point[2]).astype("int") 
-        #coss = self.cos_mat[p1, p2, p3]
-        #print("ijk: " + str(p1) + ", " + str(p2) + ", " + str(p3) + "; coss: ", + str(coss))
-        #coss = self.cos_mat[ 74, 87, 73 ]
-        #print("x: " + str(point[0]) + "; y: " + str(point[1]) + ;" z: " + str(point[2]))
+        #coss = self.cos_mat[(point[0], point[1], point[2])]
+        coss = self.cos_mat[ 74, 87, 73 ]
+        print("x: " + str(point[0]) + "; y: " + str(point[1]) + ;" z: " + str(point[2]))
 
         ## recompute mask of angles that exceed threshold
-        ## is this even accessible here? _adj_matrix is...
         #self._set_adjacency_matrix(self.vertices, coss) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
