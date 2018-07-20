@@ -69,29 +69,29 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
-        self._set_adjacency_matrix(sphere.vertices, sphere.vertices.T, self.cos_similarity)
+        self._set_adjacency_matrix(sphere, self.cos_similarity)
         #self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat, sphere)
         #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
-    def _set_adjacency_matrix(self, vert, tvrt, cos_similarity):
+    def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(vert, tvrt)
+        matrix = np.dot(sphere.vertices, sphere.vertices.T)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys = [tuple(v) for v in vert]
+        keys = [tuple(v) for v in sphere.vertices]
         adj_matrix = dict(zip(keys, matrix))
-        keys = [tuple(-v) for v in vert]
+        keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
         print('computed adj_mat')
 
     def _set_cos_mat(self, cos_mat, sphere):
         self.cos_mat = cos_mat
-        self.vert = sphere.vertices
-        self.tvrt = sphere.vertices.T
+        #self.vert = sphere.vertices
+        #self.tvrt = sphere.vertices.T
 
     ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
@@ -130,7 +130,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #print("i: " + str(p1) + " j: " + str(p1) + " k: " + str(p2) + " ; coss: " + str(coss))
         
         ## recompute mask of angles that exceed threshold
-        self._set_adjacency_matrix(self.vert, self.tvrt, coss) 
+        self._set_adjacency_matrix(self.sphere, coss) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
