@@ -79,11 +79,11 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(vert, vert.T)
+        matrix = np.dot(sphere, sphere.T)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys1 = [tuple(v) for v in vert]
+        keys1 = [tuple(v) for v in sphere]
         adj_matrix = dict(zip(keys1, matrix))
-        keys2 = [tuple(-v) for v in vert]
+        keys2 = [tuple(-v) for v in sphere]
         adj_matrix.update(zip(keys2, matrix))
         self._adj_matrix = adj_matrix
         print('computed adj_mat')
