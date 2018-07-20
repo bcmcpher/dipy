@@ -70,7 +70,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
         self._set_adjacency_matrix(sphere.vertices, self.cos_similarity)
-        self.cos_mat = self.cos_mat ## why won't this work?
+        self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
         #print('self.cos_mat size: ' + str(self.cos_mat.shape))
@@ -121,11 +121,12 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
         #coss = self.cos_mat[(point[0], point[1], point[2])]
-        coss = self.cos_mat[ 74, 87, 73 ]
+        #coss = self.cos_mat[ 74, 87, 73 ]
         #print("x: " + str(point[0]) + "; y: " + str(point[1]) + "; z: " + str(point[2]))
+        print("x: " + str(np.floor(point[0]).astype('uint8')))
 
         ## recompute mask of angles that exceed threshold
-        self._set_adjacency_matrix(self.vertices, coss) 
+        #self._set_adjacency_matrix(self.vertices, coss) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
