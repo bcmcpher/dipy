@@ -124,7 +124,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         j = np.floor(point[1])
         k = np.floor(point[2])
         coss = self.cos_mat[i, j, k]
-        print("ijk: " + str(i) + ", " + str(j) + ", " + str(k) "; ", + str(coss))
+        print("ijk: " + str(i) + ", " + str(j) + ", " + str(k) + "; coss: ", + str(coss))
         #coss = self.cos_mat[ 74, 87, 73 ]
         #print("x: " + str(point[0]) + "; y: " + str(point[1]) + ;" z: " + str(point[2]))
 
