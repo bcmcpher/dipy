@@ -69,27 +69,29 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
                                        pmf_threshold, **kwargs)
         # The vertices need to be in a contiguous array
         self.vertices = self.sphere.vertices.copy()
-        self._set_adjacency_matrix(sphere.vertices, self.cos_similarity)
+        self._set_adjacency_matrix(sphere.vertices, sphere.vertices.T, self.cos_similarity)
         self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
         #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
-    def _set_adjacency_matrix(self, sphere, cos_similarity):
+    def _set_adjacency_matrix(self, vert, tvrt, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
         each value is a boolean array indicating which directions are less than
         max_angle degrees from the key"""
-        matrix = np.dot(sphere, sphere.T)
+        matrix = np.dot(vert, tvrt)
         matrix = (abs(matrix) >= cos_similarity).astype('uint8')
-        keys1 = [tuple(v) for v in sphere]
-        adj_matrix = dict(zip(keys1, matrix))
-        keys2 = [tuple(-v) for v in sphere]
-        adj_matrix.update(zip(keys2, matrix))
+        keys = [tuple(v) for v in vert]
+        adj_matrix = dict(zip(keys, matrix))
+        keys = [tuple(-v) for v in vert]
+        adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
         print('computed adj_mat')
 
-    def _set_cos_mat(self, cos_mat):
+    def _set_cos_mat(self, cos_mat, sphere):
         self.cos_mat = cos_mat
+        self.vert = sphere.vertices
+        self.tvrt = sphere.vertices.T
 
     ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
@@ -120,17 +122,16 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## find max cosine similarity from precomputed angle array
         ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
+        ## just round down?
         p1 = np.floor(point[0]).astype('uint8')
         p2 = np.floor(point[1]).astype('uint8')
         p3 = np.floor(point[2]).astype('uint8')
         coss = self.cos_mat[p1, p2, p3]
-        print("x: " + str(p1) + " y: " + str(p1) + " z: " + str(p2) + " ; coss: " + str(coss))
+        #print("x: " + str(p1) + " y: " + str(p1) + " z: " + str(p2) + " ; coss: " + str(coss))
         #coss = self.cos_mat[ 74, 87, 73 ]
-        #print("x: " + str(point[0]) + "; y: " + str(point[1]) + "; z: " + str(point[2]))
-        #print("x: " + str(np.floor(point[0]).astype('uint8')))
-
+        
         ## recompute mask of angles that exceed threshold
-        #self._set_adjacency_matrix(self.vertices, coss) 
+        self._set_adjacency_matrix(self.vert, self.tvrt, coss) 
         ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
