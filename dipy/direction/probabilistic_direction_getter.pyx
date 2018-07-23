@@ -32,7 +32,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
     """
     cdef:
         double[:, :] vertices
-        double[:, :, :, :] cos_mat ## try and define it as a 3d C array?
+        double[:, :, :, :] cos_mat ## define a 4d C array
         double[:] val
         dict _adj_matrix
 
@@ -76,7 +76,7 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         #self.cos_mat = self.cos_mat
         #print('cos_mat shape: ' + str(cos_mat.shape))
         self._set_cos_mat(cos_mat)
-        print('self.cos_mat size: ' + str(self.cos_mat.shape))
+        #print('self.cos_mat size: ' + str(self.cos_mat.shape))
 
     def _set_adjacency_matrix(self, sphere, cos_similarity):
         """Creates a dictionary where each key is a direction from sphere and
@@ -89,12 +89,10 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
         keys = [tuple(-v) for v in sphere.vertices]
         adj_matrix.update(zip(keys, matrix))
         self._adj_matrix = adj_matrix
-        print('computed adj_mat')
+        #print('computed adj_mat')
 
     def _set_cos_mat(self, cos_mat):
         self.cos_mat = cos_mat[:,:,:,None]
-        #self.vert = sphere.vertices
-        #self.tvrt = sphere.vertices.T
 
     ## defined in dipy.tracking.local.direction_getter.pyx/d - modify there to add the desired inputs
     cdef int get_direction_c(self, double* point, double* direction):
@@ -127,21 +125,10 @@ cdef class ProbabilisticDirectionGetter(PmfGenDirectionGetter):
 
         ## interpolate cos_mat max angle at point
         z = trilinear_interpolate4d_c(cos_mat2, point, val)
-        #val = trilinear_interpolate4d(cos_mat2, point)
-        
-        ## find max cosine similarity from precomputed angle array
-        ## point has to go from mm to ijk? - _map_to_voxel / _to_voxel_coordinates
-        ## just round down?
-        #p1 = np.floor(point[0]).astype('uint8')
-        #p2 = np.floor(point[1]).astype('uint8')
-        #p3 = np.floor(point[2]).astype('uint8')
-        #coss = self.cos_mat[p1, p2, p3]
-        #print("i: " + str(p1) + " j: " + str(p1) + " k: " + str(p2) + " ; coss: " + str(coss))
-        print("val: " + str(val[0]))
+        #print("val: " + str(val[0]))
 
         ## recompute mask of angles that exceed threshold
         self._set_adjacency_matrix(self.sphere, val) 
-        ## this line in _set_adj_mat: keys = [tuple(-v) for v in sphere] does not like this
 
         bool_array = self._adj_matrix[
             (direction[0], direction[1], direction[2])]
