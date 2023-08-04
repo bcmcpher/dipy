@@ -458,6 +458,8 @@ def mode(q_form):
     r"""
     Mode (MO) of a diffusion tensor [1]_.
 
+    This is the third moment of the eigenvalue distribution (?) [2]_.
+
     Parameters
     ----------
     q_form : ndarray
@@ -488,6 +490,10 @@ def mode(q_form):
         Invariants and the Analysis of Diffusion Tensor Magnetic Resonance
         Images", Magnetic Resonance in Medicine, vol. 55, no. 1, pp. 136-146,
         2006.
+    .. [2] Chad, J. A., Pasternak, O., and Chen, J. J., "Orthogonal moment
+        diffusion tensor decomposition reveals age-related degeneration
+        patterns in complex fiber architecture", Neurobiology of Aging,
+        vol. 101, pp. 150-159, 2021.
     """
 
     A_squiggle = deviatoric(q_form)
@@ -497,6 +503,53 @@ def mode(q_form):
 
     return 3 * np.sqrt(6) * determinant((A_squiggle / A_s_norm))
 
+def norm_anisotropy(q_form):
+    r"""
+    Anisotropic norm (NA) of a diffusion tensor [2]_.
+
+    This is the second moment of the eigenvalue distribution (?) [2]_.
+
+    Parameters
+    ----------
+    q_form : ndarray
+        The quadratic form of a tensor, or an array with quadratic forms of
+        tensors. Should be of shape (x, y, z, 3, 3) or (n, 3, 3) or (3, 3).
+
+    Returns
+    -------
+    norm : array
+        Calculated tensor mode in each spatial coordinate.
+
+    Notes
+    -----
+    Quote from Chad et al., 2021 ([2]_):
+    "... NA is a shape measure directly based on the variance of the
+    eigenvalues and thus irrespective of alteration in MD. Degeneration of
+    primarily single-tract regions would manifest as decreased NA, whereas
+    selective degeneration of secondary crossing tracts would manifest as
+    increased NA." (equation 6 in [2]_):
+
+    .. math::
+
+        NA = \norm(\widetilde{D}) = sqrt{(\lambda_1-MD)^2 + (\lambda_2-MD)^2 + (\lambda_3-MD)^2}
+
+    Where $\widetilde{D}$ is the deviatoric part of the tensor quadratic form.
+
+    References
+    ----------
+
+    .. [1] Daniel B. Ennis and G. Kindlmann, "Orthogonal Tensor
+        Invariants and the Analysis of Diffusion Tensor Magnetic Resonance
+        Images", Magnetic Resonance in Medicine, vol. 55, no. 1, pp. 136-146,
+        2006.
+    .. [2] Chad, J. A., Pasternak, O., and Chen, J. J., "Orthogonal moment
+        diffusion tensor decomposition reveals age-related degeneration
+        patterns in complex fiber architecture", Neurobiology of Aging,
+        vol. 101, pp. 150-159, 2021.
+    """
+
+    A_squiggle = deviatoric(q_form)
+    return norm(A_squiggle)
 
 def linearity(evals, axis=-1):
     r"""
@@ -934,6 +987,13 @@ class TensorFit(object):
         Tensor mode calculated from cached eigenvalues.
         """
         return mode(self.quadratic_form)
+
+    @auto_attr
+    def na(self):
+        """
+        Tensor norm anisotropy calculated from cached eigenvalues.
+        """
+        return norm_anisotropy(self.quadratic_form)
 
     @auto_attr
     def md(self):
