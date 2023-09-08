@@ -215,6 +215,33 @@ RGB = color_fa(FA, tenfit.evecs)
 save_nifti('tensor_rgb.nii.gz', np.array(255 * RGB, 'uint8'), affine)
 
 """
+Additional Descriptors of the Diffusion Tensor Model
+
+There have been many proposed ways of summarizing a diffusion tensor model by
+combining the eigenvalues of the tensor estimate in different ways.
+
+Several have been introduced so far, including Fractional Anisotropy (FA) and
+Mean Diffusivity (MD). There are additional summary measures that utilize
+different combinations fo the eigenvalues to represent different features of
+the white matter. The most commonly reported metrics are Axial Diffusivity (AD)
+and Radial Diffusivity (RD).
+
+AD is simply the primary eigenvalue (\lambda_1). This is sometimes referred to 
+as the Apparent Diffusion Coefficent (ADC).
+
+RD is the average of the secondary and tertiary eigenvalues:
+((\lambda_2 + \lambda_3)/2)
+
+"""
+
+"""
+Moments of the Diffusion Tensor
+
+
+
+"""
+
+"""
 Let's try to visualize the tensor ellipsoids of a small rectangular
 area in an axial slice of the splenium of the corpus callosum (CC).
 """
