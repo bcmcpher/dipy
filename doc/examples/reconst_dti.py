@@ -215,29 +215,44 @@ RGB = color_fa(FA, tenfit.evecs)
 save_nifti('tensor_rgb.nii.gz', np.array(255 * RGB, 'uint8'), affine)
 
 """
-Additional Descriptors of the Diffusion Tensor Model
+Derived Parameter Maps of the Diffusion Tensor Model
 
 There have been many proposed ways of summarizing a diffusion tensor model by
-combining the eigenvalues of the tensor estimate in different ways.
+combining the eigenvalues of the tensor estimate in different combinations.
 
 Several have been introduced so far, including Fractional Anisotropy (FA) and
 Mean Diffusivity (MD). There are additional summary measures that utilize
-different combinations fo the eigenvalues to represent different features of
-the white matter. The most commonly reported metrics are Axial Diffusivity (AD)
-and Radial Diffusivity (RD).
+different combinations of the eigenvalues to represent different features of
+the white matter. The other most commonly reported metrics of the diffusion
+tensor are Axial Diffusivity (AD) and Radial Diffusivity (RD).
 
-AD is simply the primary eigenvalue (\lambda_1). This is sometimes referred to 
-as the Apparent Diffusion Coefficent (ADC).
+AD is simply the primary eigenvalue: (\lambda_1).
 
 RD is the average of the secondary and tertiary eigenvalues:
 ((\lambda_2 + \lambda_3)/2)
 
+GA? ADC?
+
+Isotropic / Devaitoric?
+
+Norm?
+
+Another standard descriptive metric of the tensor is the trace, which is
+the sum of the eigenvalues. This measure is not commonly reported, but is
+useful for quality assurance: trace = (\lambda_1 + \lambda_2 + \lambda_3)
+
+Another proposed set of descriptive features of the tensor is the Westin
+Shapes [1]_. These proposed features provide a nuanced take on the
+underlying shape of the underlying axons.
+
 """
+
+
 
 """
 Moments of the Diffusion Tensor
 
-
+Mean Diffusivity (MD) / Norm of Anisotropy (NA) / Mode of Anisotropy (MO)
 
 """
 
