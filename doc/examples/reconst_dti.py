@@ -219,37 +219,155 @@ Derived Parameter Maps of the Diffusion Tensor Model
 
 There have been many proposed ways of summarizing a diffusion tensor model by
 combining the eigenvalues of the tensor estimate in different combinations.
+Dipy_ has methods to estimate many of them build into the ``TensorFit`` class.
 
 Several have been introduced so far, including Fractional Anisotropy (FA) and
 Mean Diffusivity (MD). There are additional summary measures that utilize
 different combinations of the eigenvalues to represent different features of
 the white matter. The other most commonly reported metrics of the diffusion
-tensor are Axial Diffusivity (AD) and Radial Diffusivity (RD).
+tensor are Axial Diffusivity (AD) and Radial Diffusivity (RD). Axial
+diffusivity describes the magnitude of the primary diffusion axis while radial
+diffusivity describes the magnitude of the axis orthogonal to the AD.
 
-AD is simply the primary eigenvalue: (\lambda_1).
+AD is simply the primary eigenvalue:
+(\lambda_1).
 
 RD is the average of the secondary and tertiary eigenvalues:
 ((\lambda_2 + \lambda_3)/2)
 
-GA? ADC?
+"""
 
-Isotropic / Devaitoric?
+AD = tenfit.ad
+save_nifti('tensors_ad.nii.gz', AD.astype(np.float32), affine)
 
-Norm?
+RD = tenfit.rd
+save_nifti('tensors_rd.nii.gz', RD.astype(np.float32), affine)
 
-Another standard descriptive metric of the tensor is the trace, which is
-the sum of the eigenvalues. This measure is not commonly reported, but is
-useful for quality assurance: trace = (\lambda_1 + \lambda_2 + \lambda_3)
+"""
+Fracional Anisotropy (FA), Mean Diffusivity (MD), Axial Diffusivity (AD),
+and Radial Diffusivity (RD) are the most commonly reported elements of the
+diffusion tensor.
 
+Additional methods have been proposed to summarize the tensor parameters
+while additionally accounting for different assumptions or biases present in
+the data.
+
+For example, Geodesic Anisotropy (GA) changes the estimation of FA to
+accomodate that all the values are necessarily positive (i.e. postive
+definite). The equation used is:
+
+GA = \sqrt{\sum_{i=1}^3
+        \log^2{\left ( \lambda_i/<\mathbf{D}> \right )}},
+        \quad \textrm{where} \quad <\mathbf{D}> =
+        (\lambda_1\lambda_2\lambda_3)^{1/3}
+
+and comes from [3]_. An early mistake replicating the original equation
+has been observed with this metric. It has been documented and verified
+correct in this implementation.
+"""
+
+GA = tenfit.ga
+save_nifti('tensors_ga.nii.gz', GA.astype(np.float32), affine)
+
+"""
+The Apparent Diffusion Coefficient (ADC) is a summary of the diffusion
+along a set of provided gradients. The allows the user to request a
+specific set of orientations for where a specific set of movement is
+observed. The higher the ADC for a given vector, the more diffusion along
+that orientaiton is oberserved.
+
+ADC is defined as:
+
+ADC = \vec{b} Q \vec{b}^T
+
+Where Q is the quadratic form of the tensor and vec{b} is a specific
+orientation from the set passed by the user.
+"""
+
+from dipy.data import get_sphere
+sphere = get_sphere('symmetric724')
+
+ADC = tenfit.adc(sphere)
+save_nifti('tensors_adc.nii.gz', ADC.astype(np.float32), affine)
+
+"""
+Descriptive Operations on the Tensor
+
+In addition to properties that are commonly used to describe the underlying
+properties of the tissue in diffusion data, there are a set of common
+descriptive features that are unique to tensor decomposition models. These
+components are often used to derive other, more specialized metrics.
+Specifically, the determinant, norm, and the trace.
+
+The determinant is a useful matrix description that can be computed on the
+square matrix part of the diffusion estimate. It is useful for describing
+properties of various features and in computing other advanced derivatives.
+
+Determinant = det(A) or |A|
+
+"""
+
+from dipy.reconst.dti import determinant
+Det = determinant(tenfit.evecs)
+
+"""
+
+The norm of the matrix, specifically the Frobenius Norm, is necessary to
+normalize the tensor matrix for various computations for advaced features.
+
+Norm = ||A||_F = [\sum_{i,j} abs(a_{i,j})^2]^{1/2}
+
+"""
+
+from dipy.reconst.dti import norm
+Norm = norm(tenfit.evecs)
+
+"""
+
+The trace of the matrix is the sum of the eigenvalues. This measure is not
+commonly reported, but is useful for computing additional metrics or evaluating
+quality assurance.
+
+Trace = (\lambda_1 + \lambda_2 + \lambda_3)
+
+"""
+
+Trace = tenfit.trace
+
+"""
 Another proposed set of descriptive features of the tensor is the Westin
-Shapes [1]_. These proposed features provide a nuanced take on the
+Shapes [1]_. These proposed features provide a more nuanced take on the
 underlying shape of the underlying axons.
 
+Linearity describes how similar to a linear vector the tensor estimates are.
+Linearity is defined as:
+
+Linearity = 
+
+Planarity describes how planar, or "flat" the orientation of the underlying
+tissue is. Planarity is defines as:
+
+Planarity = 
+
+Sphericity describes how curved the underlying tensor estimate is. Sphericicty
+is defined as:
+
+Sphericity = 
+
 """
 
-
+linearity = tenfit.linearity
+planarity = tenfit.planarity
+sphericity = tenfit.sphericity
 
 """
+
+Isotropic / Deviatoric?
+
+"""
+
+"""
+
 Moments of the Diffusion Tensor
 
 Mean Diffusivity (MD) / Norm of Anisotropy (NA) / Mode of Anisotropy (MO)
