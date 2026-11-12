@@ -108,5 +108,62 @@ Data: `read_cenir_multib` (b 200/400/1000/2000/3000). Scope decided after Phase 
   across subjects are deferred until the feature set is complete and a comparison plan is
   written.
 - Open: data-driven ROI finder (hard thresholds) gives NaN or large L/R differences under
-  small perturbations → rework next (soft-weighted ROIs, fixed-volume region growing;
-  RecoBundles CST/SLF as an anatomical reference).
+  small perturbations → rework in Phase 1b.
+
+## Phase 1b — data-driven ROI v2 (decided 2026-11-12)
+Problem: the v1 finder (`find_alps_rois`, hard thresholds on FA, c_l, c_p and a 25° angle
+cone) returns NaN in 2/12 HBN tilt runs and L/R differences up to 22%. One voxel crossing a
+threshold changes a 3–7 voxel ROI.
+
+Decisions:
+- Tensor-only. No CSD/fODF or other non-tensor model in the screen.
+- ROI size is set by a radius (`radius_mm`, default 2.5 mm, i.e. the paper's 5 mm diameter
+  sphere). The grower stops at the voxel count of a sphere of that radius on the native
+  grid: `round(4/3 π r³ / voxel_volume)`.
+- Primary estimate is the weighted ALPS; unweighted ALPS is also reported.
+- The v1 finder stays as `data-legacy`, so the improvement can be reported against it.
+  `--roi-method` takes a list: `sphere data data-legacy` (default all three).
+
+Method (`find_alps_rois_v2`):
+1. Search region: the v1 per-hemisphere prior box at the lateral-ventricle body level,
+   lateral to the ventricle wall. Template coordinates only gate the box; distances and
+   volumes are in native mm (the affine scale is 0.73–0.91 on the test data).
+2. Soft voxel weight in [0, 1], the product of:
+   - orientation: smooth fall-off of |e1 · axis| (z for projection, y for association);
+   - linearity c_l: rising sigmoid;
+   - planarity c_p: falling sigmoid (crossing-fibre penalty);
+   - FA: rising sigmoid;
+   - MD: falling sigmoid (partial volume with CSF next to the ventricle);
+   - weak Gaussian prior around the published MNI centre (σ ≈ 6 mm) for tie-breaks.
+   Each sigmoid has a centre and a width as keyword arguments; v1 thresholds are the
+   default centres.
+3. Pair constraint: projection and association ROIs share a (y, z) centre (the medullary
+   veins run along x through both). Pick the centre that maximises
+   min(Σw_proj, Σw_assoc) over a disc of radius `radius_mm`; projection medial to
+   association.
+4. Region growing per group: seed at the highest-weight voxel near the centre; add the
+   highest-weight 26-connected neighbour whose e1 is within ~20° of the ROI mean e1; stop at
+   the voxel budget from `radius_mm`.
+5. ALPS: weighted mean of Dxx, Dyy, Dzz over the grown ROI (weights = voxel weights);
+   unweighted mean as a second result.
+6. Failure: if the best min(Σw) is below a floor, fall back to the sphere ROI and set
+   `fallback=True`. No silent NaN.
+7. Per-ROI QC: Σw, effective voxel count (Σw)²/Σw², mean angle to the axis, c_l, c_p,
+   distance to the sphere centre, overlap with the sphere ROI, `fallback`. Weight map in
+   `qc_alps.png`.
+
+Evaluation (local datasets, `experiments.py`):
+- New `sensitivity` subcommand: perturb each soft-score centre and width by ±10% and ±20%,
+  rerun the ROI step only (fit and registration cached), report the ALPS change.
+- Pass criteria on HBN: no NaN and no fallback in the tilt series and the ±0.5° runs;
+  template-frame CV across tilts ≤ the sphere method (1.7%); L/R difference ≤ 5%; ALPS
+  change ≤ 3% for ±10% perturbations. Sherbrooke and Stanford are reported, not gated.
+- `RESULTS.md` compares `sphere`, `data-legacy` and `data` on every metric.
+- Unit tests: phantom recovery (planted bundles, crossing rejection, as for v1); grown ROI
+  size equals the voxel budget; fallback triggers on an isotropic phantom; weights are
+  continuous under a small rotation of the phantom.
+
+Not planned (revisit only with a concrete need):
+- Bundle-mask reference (RecoBundles CST/SLF): checks tract identity of the selected
+  voxels, not the measurement. Needs whole-brain tracking, a bundle atlas and registration.
+- fODF peak count as a crossing screen: excluded by the tensor-only decision.
