@@ -164,6 +164,28 @@ Evaluation (local datasets, `experiments.py`):
   continuous under a small rotation of the phantom.
 
 Not planned (revisit only with a concrete need):
-- Bundle-mask reference (RecoBundles CST/SLF): checks tract identity of the selected
-  voxels, not the measurement. Needs whole-brain tracking, a bundle atlas and registration.
+- Subject-level bundle segmentation (whole-brain tracking + RecoBundles): replaced by the
+  atlas tract prior in Phase 1c, which needs no subject tractography.
 - fODF peak count as a crossing screen: excluded by the tensor-only decision.
+- Vascular atlases: deep medullary veins (~0.1–0.5 mm, variable) are not resolved by
+  population venous atlases at DWI resolution; no localising value beyond the ALPS
+  geometry assumption.
+
+## Phase 1c — atlas tract prior (after Phase 1b passes its criteria)
+Goal: replace the hand-set prior box and the Gaussian centre prior of v2 with tract
+probability maps, so the search stays in the target bundles (projection: corona
+radiata/CST; association: SLF/arcuate). Tensor scoring is unchanged.
+
+1. Build MNI tract probability maps once from the DIPY HCP842 bundle atlas
+   (`fetch_bundle_atlas_hcp842`): streamline density per voxel for CST, SLF and AF,
+   normalised to [0, 1], on the 2 mm template grid. Cache them next to the template.
+   - Check first: the atlas template space against MNI 2009a, and that both bundles have
+     enough density at the lateral-ventricle body level.
+2. Map the probability maps to native space with the existing registration
+   (`native_template_coords` sampling).
+3. v2 weight = tensor purity × orientation × tract probability (projection map for the
+   projection group, association map for the association group). The box remains as a
+   fallback when a tract map is empty in the slab.
+4. New ROI method `data-tract`; report against `sphere`, `data-legacy` and `data` with the
+   Phase 1b metrics and pass criteria.
+5. Licensing: HCP842 ships with DIPY. JHU ICBM-DTI-81 labels (FSL) are not used.
