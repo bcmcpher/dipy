@@ -188,4 +188,21 @@ radiata/CST; association: SLF/arcuate). Tensor scoring is unchanged.
    fallback when a tract map is empty in the slab.
 4. New ROI method `data-tract`; report against `sphere`, `data-legacy` and `data` with the
    Phase 1b metrics and pass criteria.
-5. Licensing: HCP842 ships with DIPY. JHU ICBM-DTI-81 labels (FSL) are not used.
+5. Licensing: HCP842 ships with DIPY, so `data-tract` works without external files.
+
+## Phase 1d — external comparison: JHU-label method (decided 2026-11-12)
+Goal: replicate a published automated ALPS method as an external reference for the
+improvement claim. It uses the JHU ICBM-DTI-81 white-matter labels: superior corona radiata
+(projection) and superior longitudinal fasciculus (association), at the lateral-ventricle
+body level (Zhang et al. 2021, cited in the README).
+
+1. Before implementing, take the exact procedure from the paper: label numbers, slice or
+   slab selection, ROI erosion or size, and the registration target.
+2. The atlas is not distributed with this tool. The user passes its path, e.g.
+   `--jhu-labels $FSLDIR/data/atlases/JHU/JHU-ICBM-labels-1mm.nii.gz`. ROI method `jhu` is
+   available only when the path is given.
+3. Space: the JHU labels are in FSL MNI152 space, not MNI 2009a. Measure the offset once
+   (register the FSL MNI152 T1 to 2009a) and either apply it or document it.
+4. Report `jhu` against `sphere`, `data-legacy`, `data` and `data-tract` with the Phase 1b
+   metrics. It is a comparison, not gated by pass criteria.
+5. Unit tests use a synthetic label image; no FSL file in the test suite.
