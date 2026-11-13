@@ -92,6 +92,7 @@ python alps/experiments.py direct --dataset hbn
 python alps/experiments.py tilt --dataset hbn --angles 0 0.5 5 10 -5 -10
 python alps/experiments.py regdiag --dataset hbn
 python alps/experiments.py sensitivity --dataset hbn
+python alps/experiments.py bootstrap --dataset hbn --replicates 50
 python alps/experiments.py summary
 ```
 
@@ -104,8 +105,13 @@ python alps/experiments.py summary
 - `sensitivity` moves each soft-score centre and width of the `data` method by ±10% and
   ±20% (`--factors`). It fits and registers once, then reruns only the ROI step. It reports
   the ALPS change, the ROI Dice against the baseline and the fallbacks.
-- `summary` writes `summary_alps.csv`, `summary_regdiag.csv`, `summary_sensitivity.csv`
-  and `tables.md`.
+- `bootstrap` measures the noise floor of each method. It fits the tensor once and
+  makes replicates by a wild bootstrap: each residual of the fit keeps its size and gets
+  a random sign. For each replicate it refits the tensor in a central work region and
+  reruns the ROI step; the registration stays fixed. It reports the SD and CV of ALPS,
+  the L/R difference and the ROI Dice against the original fit.
+- `summary` writes `summary_alps.csv`, `summary_regdiag.csv`, `summary_sensitivity.csv`,
+  `summary_bootstrap.csv` and `tables.md`.
 
 `alps/RESULTS.md` holds the current findings.
 

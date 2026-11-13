@@ -272,3 +272,16 @@ def test_tilt_dwi_moves_anatomy_and_bvecs_together():
     M = A.bvec_frame_to_world(affine, convention="fsl")
     npt.assert_allclose(M @ new_bvecs[0], Rt @ (M @ bvecs[0]), atol=1e-12)
     npt.assert_allclose(M @ new_bvecs[0], [0, 0, 1], atol=1e-12)
+
+
+def test_wild_bootstrap_keeps_residual_magnitude():
+    from experiments import wild_bootstrap_signal
+
+    rng = np.random.default_rng(1)
+    predicted = rng.uniform(100, 200, size=(500, 1, 1, 30))
+    signal = predicted + rng.normal(0, 5, size=predicted.shape)
+    boot = wild_bootstrap_signal(signal, predicted, rng)
+    npt.assert_allclose(np.abs(boot - predicted), np.abs(signal - predicted))
+    # Signs are random, so the replicate is unbiased around the prediction.
+    flips = np.sign(boot - predicted) != np.sign(signal - predicted)
+    assert 0.45 < flips.mean() < 0.55

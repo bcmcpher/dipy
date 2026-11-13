@@ -9,6 +9,8 @@ Subcommands:
   and the ROI placement against the known tilt.
 - ``sensitivity``: perturb each soft-score centre and width of the ``data``
   method and rerun the ROI step only (fit and registration done once).
+- ``bootstrap``: wild residual bootstrap of the DWI around the tensor fit;
+  refit and rerun the ROI step per replicate (registration fixed).
 - ``summary``: collect all results into CSV tables and a Markdown report.
 
 Results go to ``alps_results/<dataset>/<experiment>/``. Usage::
@@ -17,6 +19,7 @@ Results go to ``alps_results/<dataset>/<experiment>/``. Usage::
     python alps/experiments.py tilt --dataset hbn --angles 0 0.5 5 10 -5 -10
     python alps/experiments.py regdiag --dataset hbn
     python alps/experiments.py sensitivity --dataset hbn
+    python alps/experiments.py bootstrap --dataset hbn --replicates 50
     python alps/experiments.py summary
 """
 
@@ -271,6 +274,105 @@ def _dice(a, b):
     return 1.0 if total == 0 else float(2 * (a & b).sum() / total)
 
 
+#: Template-space box (mm) that holds the ventricles, the search boxes and the
+#: sphere ROIs. The bootstrap refits tensors only inside it.
+WORK_BOX = {"x": (-70.0, 70.0), "y": (-50.0, 30.0), "z": (-5.0, 50.0)}
+
+
+def wild_bootstrap_signal(signal, predicted, rng):
+    """One wild-bootstrap replicate: ``predicted + residual * v``, v = +-1.
+
+    The sign is drawn per voxel and volume (Rademacher), which keeps each
+    residual's magnitude and so its voxel- and volume-specific variance.
+    """
+    v = rng.choice(np.array([-1.0, 1.0]), size=signal.shape)
+    return predicted + (signal - predicted) * v
+
+
+def _tensor_arrays(fit, work, shape):
+    """Scatter a fit of the work voxels (N, 1, 1, ...) into full volumes."""
+    out = []
+    for arr in (fit.quadratic_form, fit.evecs, fit.evals):
+        full = np.zeros(shape + arr.shape[3:])
+        full[work] = arr[:, 0, 0]
+        out.append(full)
+    return out
+
+
+def cmd_bootstrap(args):
+    """Wild residual bootstrap of the DWI around the tensor fit."""
+    from dipy.core.gradients import gradient_table
+    from dipy.reconst.dti import TensorModel
+
+    data, affine, bvals, bvecs = load_dataset(args.dataset)
+    fit, mask, registration, _ = A.fit_and_register(data, affine, bvals, bvecs)
+    del fit
+    coords = A.native_template_coords(registration, mask.shape, affine)
+    registration["coords"] = coords
+    work = mask & np.all(np.isfinite(coords), axis=-1)
+    for i, axis in enumerate("xyz"):
+        lo, hi = WORK_BOX[axis]
+        work &= (coords[..., i] >= lo) & (coords[..., i] <= hi)
+    print(f"work region: {int(work.sum())} of {int(mask.sum())} brain voxels")
+
+    # Same model as fit_and_register (WLS, default b0 threshold), with S0.
+    gtab = gradient_table(bvals, bvecs=bvecs, b0_threshold=50.0)
+    model = TensorModel(gtab, return_S0_hat=True)
+    signal = data[work].astype(float)[:, None, None, :]
+    del data
+    base_fit = model.fit(signal)
+    predicted = base_fit.predict(gtab, S0=base_fit.S0_hat)
+    predicted = np.nan_to_num(predicted)
+
+    def run(fit):
+        tensor, evecs, evals = _tensor_arrays(fit, work, mask.shape)
+        return A.compute_alps(tensor, evecs, evals, work, affine, registration)
+
+    base = run(base_fit)
+    rng = np.random.default_rng(args.seed)
+    rows = []
+
+    def record(rep, out):
+        for (method, frame), res in out["results"].items():
+            key = "sphere" if method == "sphere" else f"{method}-{frame}"
+            dice = [
+                _dice(out["rois"][key][k], base["rois"][key][k])
+                for k in base["rois"][key]
+            ]
+            info = out["info"].get(key, {})
+            rows.append(
+                {
+                    "replicate": rep,
+                    "method": method,
+                    "frame": frame,
+                    "alps_L": res["L"]["alps"],
+                    "alps_R": res["R"]["alps"],
+                    "alps_mean": res["mean"],
+                    "lr_diff_pct": 200
+                    * (res["L"]["alps"] - res["R"]["alps"])
+                    / (res["L"]["alps"] + res["R"]["alps"]),
+                    "dice_min": float(np.min(dice)),
+                    "fallbacks": sum(bool(h.get("fallback")) for h in info.values()),
+                }
+            )
+
+    record(0, base)
+    t0 = time.perf_counter()
+    for rep in range(1, args.replicates + 1):
+        boot = wild_bootstrap_signal(signal, predicted, rng)
+        record(rep, run(model.fit(boot)))
+        if rep % 10 == 0 or rep == args.replicates:
+            print(
+                f"replicate {rep}/{args.replicates} ({time.perf_counter() - t0:.0f} s)",
+                flush=True,
+            )
+    path = RESULTS / args.dataset / "bootstrap" / "bootstrap.csv"
+    write_rows(rows, path)
+    for line in bootstrap_markdown([{"dataset": args.dataset, **r} for r in rows]):
+        print(line)
+    print(f"wrote {path}")
+
+
 def cmd_sensitivity(args):
     """Perturb each soft-score centre and width; rerun the ROI step only."""
     data, affine, bvals, bvecs = load_dataset(args.dataset)
@@ -417,6 +519,64 @@ def collect_sensitivity():
     return rows
 
 
+def collect_bootstrap():
+    rows = []
+    for name in DATASETS:
+        path = RESULTS / name / "bootstrap" / "bootstrap.csv"
+        if path.exists():
+            rows += [{"dataset": name, **r} for r in read_rows(path)]
+    return rows
+
+
+def bootstrap_markdown(rows):
+    """Per dataset and method: replicate SD and CV of ALPS (noise floor)."""
+    lines = []
+    for name in DATASETS:
+        rs = [r for r in rows if r["dataset"] == name]
+        if not rs:
+            continue
+        n = len({r["replicate"] for r in rs}) - 1
+        lines += [
+            f"## Wild bootstrap: {name} ({n} replicates; registration fixed)",
+            "",
+            "Replicate 0 is the fit to the data. SD and CV over the replicates; "
+            "L-R: L/R difference in % (mean and SD); Dice: median of the smallest "
+            "ROI Dice against replicate 0.",
+            "",
+            "| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) "
+            "| Dice | fallbacks |",
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for method in A.ROI_METHODS:
+            for frame in ("bvec", "template"):
+                sel = [r for r in rs if r["method"] == method and r["frame"] == frame]
+                if not sel:
+                    continue
+                rep0 = next(r for r in sel if int(r["replicate"]) == 0)
+                boot = [r for r in sel if int(r["replicate"]) > 0]
+
+                def col(key, *, boot=boot):
+                    return np.array([_f(r[key]) for r in boot])
+
+                def cv(v):
+                    v = v[~np.isnan(v)]
+                    return 100 * v.std(ddof=1) / v.mean() if v.size > 1 else math.nan
+
+                m, lr = col("alps_mean"), col("lr_diff_pct")
+                nan = int(np.isnan(m).sum())
+                sd = np.nanstd(m, ddof=1)
+                lines.append(
+                    f"| {method} | {frame} | {_fmt(_f(rep0['alps_mean']))} | "
+                    f"{sd:.3f} | {cv(m):.1f}%{f' ({nan} NaN)' if nan else ''} | "
+                    f"{cv(col('alps_L')):.1f}% | {cv(col('alps_R')):.1f}% | "
+                    f"{np.nanmean(lr):+.1f} ({np.nanstd(lr, ddof=1):.1f}) | "
+                    f"{np.median(col('dice_min')):.2f} | "
+                    f"{int(col('fallbacks').sum())} |"
+                )
+        lines.append("")
+    return lines
+
+
 def sensitivity_markdown(rows):
     """One table per dataset: template-frame ALPS change per perturbation."""
     lines = []
@@ -455,7 +615,7 @@ def sensitivity_markdown(rows):
     return lines
 
 
-def markdown(alps_rows, reg_rows, *, sens_rows=()):
+def markdown(alps_rows, reg_rows, *, sens_rows=(), boot_rows=()):
     cols = [
         (method, frame) for method in A.ROI_METHODS for frame in ("bvec", "template")
     ]
@@ -540,19 +700,23 @@ def markdown(alps_rows, reg_rows, *, sens_rows=()):
             )
         lines.append("")
     lines += sensitivity_markdown(sens_rows)
+    lines += bootstrap_markdown(boot_rows)
     return "\n".join(lines)
 
 
 def cmd_summary(args):
     alps_rows, reg_rows = collect()
     sens_rows = collect_sensitivity()
+    boot_rows = collect_bootstrap()
+    if boot_rows:
+        write_rows(boot_rows, RESULTS / "summary_bootstrap.csv")
     if sens_rows:
         write_rows(sens_rows, RESULTS / "summary_sensitivity.csv")
     if alps_rows:
         write_rows(alps_rows, RESULTS / "summary_alps.csv")
     if reg_rows:
         write_rows(reg_rows, RESULTS / "summary_regdiag.csv")
-    text = markdown(alps_rows, reg_rows, sens_rows=sens_rows)
+    text = markdown(alps_rows, reg_rows, sens_rows=sens_rows, boot_rows=boot_rows)
     (RESULTS / "tables.md").write_text(text)
     print(text)
 
@@ -598,6 +762,12 @@ def build_parser():
     add_dataset(sp)
     sp.add_argument("--factors", type=float, nargs="+", default=[0.8, 0.9, 1.1, 1.2])
     sp.set_defaults(func=cmd_sensitivity)
+
+    sp = sub.add_parser("bootstrap", help="Wild bootstrap noise floor of ALPS.")
+    add_dataset(sp)
+    sp.add_argument("--replicates", type=int, default=50, help="Number of replicates.")
+    sp.add_argument("--seed", type=int, default=0)
+    sp.set_defaults(func=cmd_bootstrap)
 
     sp = sub.add_parser("summary", help="Collect results into tables.")
     sp.set_defaults(func=cmd_summary)
