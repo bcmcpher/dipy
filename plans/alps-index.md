@@ -41,6 +41,7 @@ Goals (user decisions, 2026-11-10):
 - Workflow/test precedent to mirror: `SNRinCCFlow` (`workflows/stats.py:37`), `test_stats.py`.
 
 ## Phase 1 — core (`alps/alps.py`)
+Original design (2026-11-10). Where the build differs, "As built" below is authoritative.
 1. `fit_tensor(dwi, gtab, mask)` -> `TensorFit`.
 2. `bvec_frame_to_world(affine, convention="fsl")` -> 3x3 orthogonal `M`: FSL bvecs are voxel-axis
    with x flipped when `det(affine[:3,:3]) > 0`; `M = polar(affine[:3,:3])[0] @ F`. Option
@@ -58,14 +59,14 @@ Goals (user decisions, 2026-11-10):
    c. Candidate voxels, from rotated eigenvectors: projection = |e1·z| ≥ cos 25°, association =
       |e1·y| ≥ cos 25°; both FA ≥ 0.3, linearity c_l = (λ1-λ2)/λ1 ≥ 0.4, planarity c_p low
       (rejects callosal crossings — the main ALPS confound).
-   d. Geometry: per (y, z) row, require a projection run medial and an association run lateral,
-      lateral to the ventricle wall (veins run along x). Score rows by purity; grow the ROI from the
-      best rows until volume ≈ 5 mm sphere (≈65 mm³). All thresholds are keyword args.
+   d. Geometry: projection candidates medial to association candidates, lateral to the
+      ventricle wall (veins run along x); the ROI centre is the shared (y, z) disc with the most
+      voxels of the smaller group. All thresholds are keyword args. (Superseded by v2, Phase 1b.)
 7. `alps_index(qform_rot, rois)` -> per hemisphere: Dxx/Dyy/Dzz per ROI, ALPS L, R, mean; plus FA,
    MD, mean angular deviation, c_l, c_p, voxel count per ROI.
-8. `main()`: args `dwi bval bvec [--mask PATH] --out-dir --roi-method {sphere,data,both} --bvec-convention
-   {fsl,world} --no-rotation --reg {affine,syn}`. Writes `alps.csv` (one row per method × rotation
-   on/off), ROI NIfTIs, `qc_alps.png` (colour FA in template frame, axial slice through ROIs, ROI
+8. `main()`: args `dwi bval bvec [--mask PATH] --out-dir --roi-method --bvec-convention
+   {fsl,voxel,world} --reg {affine,syn} --max-bval`. Writes `alps.csv` (one row per method × frame
+   (`bvec`, `template`) × hemisphere), ROI label NIfTIs (`rois_<method>.nii.gz`), `qc_alps.png` (colour FA in template frame, axial slice through ROIs, ROI
    outlines, ventricle outline).
 9. `alps/README.md`: method, frame conventions, assumptions, and limitations list (scale, geometry,
    radial-diffusivity/crossing confound, non-specificity, orientation, acquisition, validation).
@@ -78,7 +79,10 @@ tissue, so standard ALPS mostly sees tissue radial diffusivity. Multi-shell data
   tensor, and FW fraction in each ROI — directly tests whether the x-excess lives in the fast pool.
 - Note the user's MSMT-residual idea (subtract WM/GM predictions, read orientation of what is left)
   as related work; not implemented — residual orientation is dominated by WM response misfit.
-Data: `read_cenir_multib` (b 200/400/1000/2000/3000). Scope decided after Phase 1.
+Data: the local 2-shell datasets first (`hbn` b 1000/2000, `sherbrooke` b 1000/2000/3000);
+FW-DTI needs ≥ 2 non-zero shells, so single-shell clinical data (and `stanford`) are out of
+scope for it. `read_cenir_multib` (b 200–3000) only for the per-shell low-b analysis.
+Scope decided after Phase 1.
 
 ## Verification
 - Unit (`alps/test_alps.py`, synthetic): (1) `rotate_tensor` with identity / 90° permutations swaps
@@ -86,9 +90,9 @@ Data: `read_cenir_multib` (b 200/400/1000/2000/3000). Scope decided after Phase 
   → known ALPS; rotate the whole volume + affine by ±10° about each axis → rotation-corrected ALPS
   unchanged (≤1%), uncorrected drifts; (3) FSL-flip handling: same data with LAS vs RAS affine gives
   same result; (4) data-driven finder recovers planted ROIs and rejects planted crossing voxels.
-- Real data: Sherbrooke 3-shell (b=1000 shell) and CFIN; compare sphere vs data-driven ROIs
-  (centroid distance, ALPS agreement), rotation on vs off; inspect `qc_alps.png`. Expect ALPS ≈1.1–1.7
-  (paper cohort 1.24 ± 0.22).
+- [x] Real data: Sherbrooke (b=1000 shell), HBN (b=1000), Stanford (b=2000); sphere vs
+  data-driven ROIs, `bvec` vs `template` frame; inspect `qc_alps.png`. (CFIN dropped: thin slab.)
+  Paper cohort 1.24 ± 0.22; local values 1.3–1.8.
 - [x] Robustness demo: resample a real DWI with a synthetic 5–10° head tilt (rotate image and bvecs) and
   show corrected vs uncorrected ALPS (`experiments.py tilt`).
 - `ruff` clean; pytest passes. Show results to user; no commit until user audits.
@@ -109,6 +113,9 @@ Data: `read_cenir_multib` (b 200/400/1000/2000/3000). Scope decided after Phase 
   written.
 - Open: data-driven ROI finder (hard thresholds) gives NaN or large L/R differences under
   small perturbations → rework in Phase 1b.
+- Known limit: the tuning subject (HBN) is paediatric. FA levels and white-matter lesions
+  differ in older brains, so default weight parameters may not transfer; test in the group
+  phase and state it in the README limitations.
 
 ## Phase 1b — data-driven ROI v2 (decided 2026-11-12)
 Problem: the v1 finder (`find_alps_rois`, hard thresholds on FA, c_l, c_p and a 25° angle
@@ -144,20 +151,42 @@ Method (`find_alps_rois_v2`):
 4. Region growing per group: seed at the highest-weight voxel near the centre; add the
    highest-weight 26-connected neighbour whose e1 is within ~20° of the ROI mean e1; stop at
    the voxel budget from `radius_mm`.
-5. ALPS: weighted mean of Dxx, Dyy, Dzz over the grown ROI (weights = voxel weights);
-   unweighted mean as a second result.
+5. ALPS: ratio of weighted means, not a mean of per-voxel ratios. For each ROI,
+   `D̄ = Σ wᵢ Dᵢ / Σ wᵢ` for Dxx, Dyy and Dzz; then
+   `ALPS = mean(D̄xx_proj, D̄xx_assoc) / mean(D̄yy_proj, D̄zz_assoc)`. The unweighted
+   version (all wᵢ = 1 inside the grown ROI) is the second result.
 6. Failure: if the best min(Σw) is below a floor, fall back to the sphere ROI and set
    `fallback=True`. No silent NaN.
 7. Per-ROI QC: Σw, effective voxel count (Σw)²/Σw², mean angle to the axis, c_l, c_p,
    distance to the sphere centre, overlap with the sphere ROI, `fallback`. Weight map in
    `qc_alps.png`.
+8. ROI export for review: every method writes its final ROIs as `rois_<method>.nii.gz`
+   (labels 1–4, as now) and, for weighted methods, `weights_<method>.nii.gz` (float, one
+   volume per ROI, zero outside the grown ROI), both on the native grid. Lets a reviewer
+   check placement in any viewer, as the paper's radiologist did.
 
-Evaluation (local datasets, `experiments.py`):
+Evaluation (local datasets, `experiments.py`). HBN is the tuning set; Sherbrooke and
+Stanford are held out: run with the HBN-tuned defaults, reported, never re-tuned.
 - New `sensitivity` subcommand: perturb each soft-score centre and width by ±10% and ±20%,
   rerun the ROI step only (fit and registration cached), report the ALPS change.
+- New `bootstrap` subcommand (measurement noise): residual (wild) bootstrap of the DWI
+  around the tensor fit, N ≈ 50–100 replicates, ROI step and ALPS per replicate. Reports
+  the SD and CV of ALPS per method. This is the noise floor against which the tilt CV and
+  the sensitivity are judged.
+- New `planted` subcommand (validity): synthesise a DWI from a subject's fitted tensors
+  with a known extra Dxx (e.g. +5%, +10%, +20%) in the periventricular white matter of the
+  ALPS slab, add Rician noise at the measured SNR, and check that each ROI method recovers
+  the known ALPS change (bias and slope). Also plant a crossing-fibre perturbation to check
+  that v2 rejects it.
+- New `montage` subcommand: one image per dataset with the ROIs of every method and run
+  (tilt angles, bootstrap examples) on colour FA, for a quick visual audit.
+- Registration: run the sphere and `data` methods with `--reg affine` and `--reg syn` on
+  every dataset; report the change in ROI centre and ALPS.
 - Pass criteria on HBN: no NaN and no fallback in the tilt series and the ±0.5° runs;
-  template-frame CV across tilts ≤ the sphere method (1.7%); L/R difference ≤ 5%; ALPS
-  change ≤ 3% for ±10% perturbations. Sherbrooke and Stanford are reported, not gated.
+  template-frame CV across tilts ≤ the sphere method (1.7%) and ≤ the bootstrap CV;
+  L/R difference stable under the tilt series and the perturbations (its spread no larger
+  than the sphere method's; no absolute symmetry target, because real asymmetry exists);
+  ALPS change ≤ 3% for ±10% perturbations; planted-effect slope within 10% of 1.
 - `RESULTS.md` compares `sphere`, `data-legacy` and `data` on every metric.
 - Unit tests: phantom recovery (planted bundles, crossing rejection, as for v1); grown ROI
   size equals the voxel budget; fallback triggers on an isotropic phantom; weights are
@@ -181,6 +210,8 @@ radiata/CST; association: SLF/arcuate). Tensor scoring is unchanged.
    normalised to [0, 1], on the 2 mm template grid. Cache them next to the template.
    - Check first: the atlas template space against MNI 2009a, and that both bundles have
      enough density at the lateral-ventricle body level.
+   - If the spaces differ, measure the offset once (register the atlas template to 2009a)
+     and apply it to the maps before caching.
 2. Map the probability maps to native space with the existing registration
    (`native_template_coords` sampling).
 3. v2 weight = tensor purity × orientation × tract probability (projection map for the
@@ -197,7 +228,9 @@ improvement claim. It uses the JHU ICBM-DTI-81 white-matter labels: superior cor
 body level (Zhang et al. 2021, cited in the README).
 
 1. Before implementing, take the exact procedure from the paper: label numbers, slice or
-   slab selection, ROI erosion or size, and the registration target.
+   slab selection, ROI erosion or size, and the registration target and type (probably
+   nonlinear, FA to an FA template). Replicate the registration where DIPY allows (SyN);
+   list every remaining difference in `RESULTS.md`, because each one loosens the comparison.
 2. The atlas is not distributed with this tool. The user passes its path, e.g.
    `--jhu-labels $FSLDIR/data/atlases/JHU/JHU-ICBM-labels-1mm.nii.gz`. ROI method `jhu` is
    available only when the path is given.
