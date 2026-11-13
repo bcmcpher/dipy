@@ -192,6 +192,23 @@ Stanford are held out: run with the HBN-tuned defaults, reported, never re-tuned
   size equals the voxel budget; fallback triggers on an isotropic phantom; weights are
   continuous under a small rotation of the phantom.
 
+As built (2026-11-13):
+- [x] `find_alps_rois_v2` (method `data`), v1 kept as `data-legacy`, `--roi-method` list,
+  weighted and unweighted ALPS, `weights_<method>.nii.gz`, soft-weight QC panel. Method
+  steps 1–8 as above. Open details fixed in code: growth stays within `2 * radius` of the
+  pair centre in (y, z); the MNI prior factor falls to `1 - prior_weight` (0.2); a voxel
+  joins at weight ≥ `grow_min` (0.1); fallback below a weight sum of `min_weight` (1.0).
+  Distances use native world mm rotated by `R^T` (template-aligned axes).
+- [x] Unit tests: phantom recovery, crossing rejection, ROI size equals the voxel budget,
+  fallback on an isotropic phantom, weight continuity under a 1° rotation.
+- [x] `sensitivity` subcommand (soft-score centres and widths, ±10% and ±20%; ROI Dice
+  and fallbacks). Results in `RESULTS.md`: largest change at ±10% is 3.3% on HBN,
+  3.5% Sherbrooke, 3.0% Stanford; all at or just above the ≤ 3% criterion.
+- [x] Growth bounded to 2 × `radius` from the seed in 3D and medial order checked on
+  the grown ROIs (code review).
+- [x] HBN tilt series with v2: no NaN or fallback, template CV 0.6%, L/R SD 2.3 points.
+- [ ] `bootstrap`, `planted`, `montage`, affine vs SyN; Sherbrooke tilt rerun with v2.
+
 Not planned (revisit only with a concrete need):
 - Subject-level bundle segmentation (whole-brain tracking + RecoBundles): replaced by the
   atlas tract prior in Phase 1c, which needs no subject tractography.

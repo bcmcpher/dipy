@@ -19,14 +19,19 @@ reports the index in both frames:
 - ``bvec``: the tensor as fitted, as in most published pipelines.
 - ``template``: the tensor rotated into the template-aligned frame.
 
-ROIs come from one of two methods:
+ROIs come from one of three methods:
 
 - ``sphere``: 5 mm spheres at published MNI coordinates [2]_, mapped to
   native space.
-- ``data``: a constrained data-driven search. It looks lateral to the
+- ``data``: a soft-weighted, data-driven search. It looks lateral to the
   lateral-ventricle body for coherent projection (z-oriented) and association
-  (y-oriented) fibres. It rejects voxels with low linearity or high planarity,
-  which removes crossing fibres, the main confound of the index.
+  (y-oriented) fibres. Each voxel gets a weight in [0, 1] from smooth scores of
+  orientation, linearity, planarity, FA and MD; low linearity and high
+  planarity (crossing fibres, the main confound of the index) give low
+  weights. Each ROI grows from a seed to the voxel count of a ``sphere`` ROI,
+  and the index is the ratio of weighted mean diffusivities.
+- ``data-legacy``: the first data-driven search, with hard thresholds. Kept
+  for comparison.
 
 The script is self-contained. Its functions are written so that they can
 move to ``dipy/stats/alps.py`` and its ``main`` to a ``Workflow``.
@@ -44,6 +49,7 @@ References
 
 import argparse
 import csv
+import itertools
 import json
 import logging
 from pathlib import Path
@@ -67,6 +73,9 @@ FIBRE_AXIS = {"proj": 2, "assoc": 1}
 ROI_LABELS = {("L", "proj"): 1, ("L", "assoc"): 2, ("R", "proj"): 3, ("R", "assoc"): 4}
 
 HEMISPHERE_SIGN = {"L": -1.0, "R": 1.0}
+
+#: ROI methods, in report order.
+ROI_METHODS = ("sphere", "data-legacy", "data")
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +441,36 @@ def ventricle_mask(
     return np.isin(labels, keep)
 
 
+def _prior_box(sx, Y, Z, ventricles, *, x_min, x_span, y_range, z_range):
+    """Per-hemisphere search box in template coordinates.
+
+    ``sx`` is the template x multiplied by the hemisphere sign, so that
+    lateral is positive. With a ventricle mask, the box starts at the lateral
+    wall of the ventricle body and its z range is limited to the levels where
+    the ventricle body exists; ventricle voxels are excluded.
+
+    Returns
+    -------
+    box : ndarray of bool
+    x_lim, z_lim : tuple of float
+        The ``sx`` and z limits of the box.
+    """
+    lo_x, z_lo, z_hi = x_min, z_range[0], z_range[1]
+    if ventricles is not None:
+        vent = ventricles & (sx > 0) & (Y >= y_range[0]) & (Y <= y_range[1])
+        vent_z = vent & (Z >= z_range[0]) & (Z <= z_range[1])
+        if vent_z.any():
+            lo_x = float(np.percentile(sx[vent_z], 99))
+            z_lo = max(z_range[0], float(Z[vent_z].min()))
+            z_hi = min(z_range[1], float(Z[vent_z].max()))
+    hi_x = lo_x + x_span
+    box = (sx >= lo_x) & (sx <= hi_x) & (Y >= y_range[0]) & (Y <= y_range[1])
+    box &= (Z >= z_lo) & (Z <= z_hi)
+    if ventricles is not None:
+        box &= ~ventricles
+    return box, (lo_x, hi_x), (z_lo, z_hi)
+
+
 def find_alps_rois(
     evecs,
     maps,
@@ -495,19 +534,16 @@ def find_alps_rois(
     rois, info = {}, {}
     for hemi, sign in HEMISPHERE_SIGN.items():
         sx = sign * X
-        lo_x, z_lo, z_hi = x_min, z_range[0], z_range[1]
-        if ventricles is not None:
-            vent = ventricles & (sx > 0) & (Y >= y_range[0]) & (Y <= y_range[1])
-            vent_z = vent & (Z >= z_range[0]) & (Z <= z_range[1])
-            if vent_z.any():
-                lo_x = float(np.percentile(sx[vent_z], 99))
-                z_lo = max(z_range[0], float(Z[vent_z].min()))
-                z_hi = min(z_range[1], float(Z[vent_z].max()))
-        hi_x = lo_x + x_span
-        box = (sx >= lo_x) & (sx <= hi_x) & (Y >= y_range[0]) & (Y <= y_range[1])
-        box &= (Z >= z_lo) & (Z <= z_hi)
-        if ventricles is not None:
-            box &= ~ventricles
+        box, (lo_x, hi_x), (z_lo, z_hi) = _prior_box(
+            sx,
+            Y,
+            Z,
+            ventricles,
+            x_min=x_min,
+            x_span=x_span,
+            y_range=y_range,
+            z_range=z_range,
+        )
 
         cand = {
             "proj": box & quality & (np.abs(e1[..., FIBRE_AXIS["proj"]]) >= cos_t),
@@ -560,29 +596,382 @@ def find_alps_rois(
     return rois, info
 
 
+#: Default (centre, width) of each soft score in :func:`soft_weights`.
+#: The centres are the hard thresholds of :func:`find_alps_rois`.
+SOFT_SCORES = {
+    "angle": (25.0, 5.0),  # deg between e1 and the fibre axis, falling
+    "fa": (0.3, 0.05),  # rising
+    "cl": (0.4, 0.05),  # rising
+    "cp": (0.3, 0.05),  # falling
+    "md": (1.1e-3, 0.1e-3),  # mm^2/s, falling (CSF partial volume)
+}
+
+
+def _rising(v, centre, width):
+    with np.errstate(over="ignore"):
+        return 1.0 / (1.0 + np.exp(-(v - centre) / width))
+
+
+def soft_weights(
+    e1, maps, coords, group, hemi, *, scores=None, prior_sigma=6.0, prior_weight=0.2
+):
+    """Soft voxel weight in [0, 1] for one fibre group and hemisphere.
+
+    The weight is the product of a falling sigmoid of the angle between the
+    principal eigenvector and the fibre axis, rising sigmoids of FA and
+    linearity, falling sigmoids of planarity and MD, and a weak Gaussian prior
+    around the published MNI centre of the ROI.
+
+    Parameters
+    ----------
+    e1 : ndarray (X, Y, Z, 3)
+        Principal eigenvectors in the frame to evaluate.
+    maps : dict
+        Output of :func:`eigen_maps`.
+    coords : ndarray (X, Y, Z, 3)
+        Template coordinates of each native voxel.
+    group : {"proj", "assoc"}
+    hemi : {"L", "R"}
+    scores : dict, optional
+        ``{name: (centre, width)}`` overrides of :data:`SOFT_SCORES`.
+    prior_sigma : float, optional
+        Standard deviation (template mm) of the prior around the MNI centre.
+    prior_weight : float, optional
+        Depth of the prior: the factor falls from 1 at the centre to
+        ``1 - prior_weight`` far from it. Default 0.2, a tie-breaker.
+
+    Returns
+    -------
+    ndarray (X, Y, Z)
+    """
+    s = {**SOFT_SCORES, **(scores or {})}
+    cos_a = np.clip(np.abs(e1[..., FIBRE_AXIS[group]]), 0.0, 1.0)
+    angle = np.degrees(np.arccos(cos_a))
+    w = 1.0 - _rising(angle, *s["angle"])
+    w = w * _rising(maps["fa"], *s["fa"])
+    w = w * _rising(maps["cl"], *s["cl"])
+    w = w * (1.0 - _rising(maps["cp"], *s["cp"]))
+    w = w * (1.0 - _rising(maps["md"], *s["md"]))
+    d2 = np.sum((coords - np.asarray(ALPS_MNI_COORDS[hemi][group])) ** 2, axis=-1)
+    w = w * (1.0 - prior_weight * (1.0 - np.exp(-d2 / (2.0 * prior_sigma**2))))
+    return np.nan_to_num(w)
+
+
+_NEIGHBOURS = np.array(
+    [o for o in itertools.product((-1, 0, 1), repeat=3) if any(o)], dtype=int
+)
+
+
+def _grow_region(seed, w, e1, allowed, budget, *, max_angle, min_weight):
+    """Grow a 26-connected region from ``seed`` to ``budget`` voxels.
+
+    At each step the highest-weight neighbour of the region joins it, if its
+    weight is at least ``min_weight`` and its principal eigenvector is within
+    ``max_angle`` of the region's mean principal eigenvector.
+    """
+    shape = np.array(w.shape)
+    roi = np.zeros(w.shape, dtype=bool)
+    roi[seed] = True
+    mean_vec = e1[seed].astype(float).copy()
+    cos_t = np.cos(np.radians(max_angle))
+    frontier = set()
+
+    def push(v):
+        nb = np.asarray(v) + _NEIGHBOURS
+        nb = nb[np.all((nb >= 0) & (nb < shape), axis=1)]
+        for n in map(tuple, nb):
+            if allowed[n] and not roi[n] and w[n] >= min_weight:
+                frontier.add(n)
+
+    push(seed)
+    n = 1
+    while n < budget and frontier:
+        ref = mean_vec / np.linalg.norm(mean_vec)
+        cands = [v for v in frontier if abs(e1[v] @ ref) >= cos_t]
+        if not cands:
+            break
+        v = max(cands, key=lambda c: (w[c], c))
+        frontier.discard(v)
+        roi[v] = True
+        n += 1
+        e = e1[v]
+        mean_vec += e if e @ mean_vec >= 0 else -e
+        push(v)
+    return roi
+
+
+def find_alps_rois_v2(
+    evecs,
+    maps,
+    coords,
+    mask,
+    *,
+    anat=None,
+    voxel_size=(2.0, 2.0, 2.0),
+    radius=2.5,
+    y_range=(-24.0, 0.0),
+    z_range=(16.0, 32.0),
+    x_min=18.0,
+    x_span=30.0,
+    ventricles=None,
+    sphere=None,
+    scores=None,
+    prior_sigma=6.0,
+    prior_weight=0.2,
+    max_grow_angle=20.0,
+    grow_min=0.1,
+    min_weight=1.0,
+):
+    """Soft-weighted data-driven ALPS ROIs with region growing.
+
+    For each hemisphere:
+
+    1. The search box is the :func:`find_alps_rois` prior box.
+    2. Each voxel gets a weight per fibre group (:func:`soft_weights`).
+    3. The projection and association ROIs share a (y, z) centre: the one
+       whose disc of radius ``radius`` maximises the smaller of the two group
+       weight sums, with projection fibres medial to association fibres.
+    4. Each ROI grows from the highest-weight voxel of the group in that disc
+       (:func:`_grow_region`) to the voxel count of a sphere of radius
+       ``radius``. Growth stays inside the box, within ``2 * radius`` of the
+       centre in (y, z) and within ``2 * radius`` of the seed in 3D.
+    5. If the best weight sum is below ``min_weight``, a group has no seed, or
+       the grown projection ROI is not medial to the association ROI, both ROIs
+       of the hemisphere fall back to the ``sphere`` ROIs with unit weights.
+
+    The box is set in template coordinates; distances (disc, growth limit)
+    and the voxel budget are in native mm, along template-aligned axes.
+
+    Parameters
+    ----------
+    evecs : ndarray (X, Y, Z, 3, 3)
+        Eigenvectors (columns) in the frame to evaluate.
+    maps : dict
+        Output of :func:`eigen_maps`.
+    coords : ndarray (X, Y, Z, 3)
+        Template coordinates of each native voxel.
+    mask : ndarray (X, Y, Z) of bool
+        Brain mask.
+    anat : ndarray (X, Y, Z, 3), optional
+        Native world coordinates (mm) rotated to template-aligned axes.
+        Default: ``coords``.
+    voxel_size : sequence of float
+        Native voxel size in mm.
+    radius : float, optional
+        ROI size: the grower stops at ``round(4/3 pi radius^3 / voxel volume)``
+        voxels. Default 2.5 mm (5 mm diameter sphere).
+    ventricles : ndarray (X, Y, Z) of bool, optional
+        Output of :func:`ventricle_mask`.
+    sphere : dict, optional
+        Fallback ROIs, ``{(hemisphere, group): bool mask}``
+        (:func:`sphere_rois`). Without it, a fallback ROI is empty.
+    scores, prior_sigma, prior_weight
+        Passed to :func:`soft_weights`.
+    max_grow_angle : float, optional
+        Largest angle (deg) between a new voxel's principal eigenvector and
+        the ROI mean.
+    grow_min : float, optional
+        Smallest weight of a voxel that may join an ROI.
+    min_weight : float, optional
+        Smallest weight sum per group in the chosen disc before fallback.
+
+    Returns
+    -------
+    rois : dict
+        ``{(hemisphere, group): bool mask}``.
+    weights : dict
+        ``{(hemisphere, group): float map}``, zero outside the ROI.
+    info : dict
+        Per hemisphere: box limits, centre, fallback flag and per-ROI QC.
+    fields : dict
+        ``{group: float map}``: the soft weights inside both search boxes.
+    """
+    anat = coords if anat is None else anat
+    e1 = evecs[..., :, 0]
+    X, Y, Z = coords[..., 0], coords[..., 1], coords[..., 2]
+    step = float(min(voxel_size))
+    budget = max(1, int(round(4.0 / 3.0 * np.pi * radius**3 / np.prod(voxel_size))))
+    groups = tuple(FIBRE_AXIS)
+
+    rois, weights, info = {}, {}, {}
+    fields = {g: np.zeros(mask.shape) for g in groups}
+    for hemi, sign in HEMISPHERE_SIGN.items():
+        box, x_lim, z_lim = _prior_box(
+            sign * X,
+            Y,
+            Z,
+            ventricles,
+            x_min=x_min,
+            x_span=x_span,
+            y_range=y_range,
+            z_range=z_range,
+        )
+        box &= mask
+        w = {}
+        for g in groups:
+            wg = soft_weights(
+                e1,
+                maps,
+                coords,
+                g,
+                hemi,
+                scores=scores,
+                prior_sigma=prior_sigma,
+                prior_weight=prior_weight,
+            )
+            w[g] = np.where(box, wg, 0.0)
+            fields[g] = np.maximum(fields[g], w[g])
+
+        yz = np.column_stack([anat[..., 1][box], anat[..., 2][box]])
+        xs = sign * anat[..., 0][box]
+        wv = {g: w[g][box] for g in groups}
+
+        best, best_score = None, -np.inf
+        if yz.size:
+            for y0 in np.arange(yz[:, 0].min(), yz[:, 0].max() + 1e-6, step):
+                for z0 in np.arange(yz[:, 1].min(), yz[:, 1].max() + 1e-6, step):
+                    disc = np.sum((yz - (y0, z0)) ** 2, axis=1) <= radius**2
+                    sums = {g: float(wv[g][disc].sum()) for g in groups}
+                    score = min(sums.values())
+                    if score <= best_score or score <= 0:
+                        continue
+                    x_g = {g: np.average(xs[disc], weights=wv[g][disc]) for g in groups}
+                    if x_g["proj"] >= x_g["assoc"]:
+                        continue
+                    best, best_score = (y0, z0), score
+
+        hemi_info = {
+            "x_range": list(x_lim),
+            "z_range": list(z_lim),
+            "centre_yz": None if best is None else [float(best[0]), float(best[1])],
+            "best_min_weight_sum": float(max(best_score, 0.0)),
+            "voxel_budget": budget,
+            "fallback": True,
+        }
+
+        grown = {}
+        if best is not None and best_score >= min_weight:
+            d2 = (anat[..., 1] - best[0]) ** 2 + (anat[..., 2] - best[1]) ** 2
+            disc = box & (d2 <= radius**2)
+            cylinder = box & (d2 <= (2.0 * radius) ** 2)
+            for g in groups:
+                seeds = disc & (w[g] >= grow_min)
+                if not seeds.any():
+                    break
+                flat = np.flatnonzero(seeds)
+                seed = np.unravel_index(flat[np.argmax(w[g].ravel()[flat])], box.shape)
+                # Keep the ROI compact: within 2 * radius of the seed in 3D.
+                ball = np.sum((anat - anat[seed]) ** 2, axis=-1) <= (2.0 * radius) ** 2
+                grown[g] = _grow_region(
+                    seed,
+                    w[g],
+                    e1,
+                    cylinder & ball,
+                    budget,
+                    max_angle=max_grow_angle,
+                    min_weight=grow_min,
+                )
+            if len(grown) == len(groups):
+                xs_g = {g: np.mean(sign * anat[..., 0][grown[g]]) for g in groups}
+                if xs_g["proj"] >= xs_g["assoc"]:
+                    grown = {}  # projection must stay medial to association
+
+        if len(grown) == len(groups):
+            hemi_info["fallback"] = False
+            for g in groups:
+                rois[(hemi, g)] = grown[g]
+                weights[(hemi, g)] = np.where(grown[g], w[g], 0.0)
+        else:
+            logger.warning(
+                "Data-driven ALPS ROI search failed in hemisphere %s; "
+                "falling back to the sphere ROIs",
+                hemi,
+            )
+            for g in groups:
+                roi = (
+                    sphere[(hemi, g)].copy()
+                    if sphere is not None
+                    else np.zeros(mask.shape, dtype=bool)
+                )
+                rois[(hemi, g)] = roi
+                weights[(hemi, g)] = roi.astype(float)
+
+        for g in groups:
+            roi, wr = rois[(hemi, g)], weights[(hemi, g)][rois[(hemi, g)]]
+            qc = {"nvox": int(roi.sum())}
+            if qc["nvox"]:
+                sw = float(wr.sum())
+                centroid = np.average(coords[roi], axis=0, weights=wr + 1e-12)
+                ref = np.asarray(ALPS_MNI_COORDS[hemi][g])
+                qc.update(
+                    sum_w=sw,
+                    n_eff=float(sw**2 / np.sum(wr**2)) if sw > 0 else 0.0,
+                    centroid_mni=[float(c) for c in centroid],
+                    dist_to_sphere_mm=float(np.linalg.norm(centroid - ref)),
+                )
+                if sphere is not None:
+                    overlap = (roi & sphere[(hemi, g)]).sum() / qc["nvox"]
+                    qc["sphere_overlap"] = float(overlap)
+            hemi_info[g] = qc
+        info[hemi] = hemi_info
+    return rois, weights, info, fields
+
+
 # ---------------------------------------------------------------------------
 # Index
 # ---------------------------------------------------------------------------
 
 
-def roi_metrics(tensor, evecs, maps, roi, group):
-    """Mean diagonal diffusivities and quality metrics in one ROI."""
+ROI_METRIC_KEYS = (
+    "Dxx",
+    "Dyy",
+    "Dzz",
+    "nvox",
+    "sum_w",
+    "n_eff",
+    "fa",
+    "md",
+    "cl",
+    "cp",
+    "angle_deg",
+)
+
+
+def roi_metrics(tensor, evecs, maps, roi, group, *, weights=None):
+    """Mean diagonal diffusivities and quality metrics in one ROI.
+
+    With ``weights``, every mean is a weighted mean, ``sum_w`` is the weight
+    sum and ``n_eff`` the effective voxel count ``(sum w)^2 / sum w^2``.
+    """
     n = int(roi.sum())
-    out = {"nvox": n}
+    out = dict.fromkeys(ROI_METRIC_KEYS, np.nan)
+    out["nvox"] = n
     if n == 0:
-        for key in ("Dxx", "Dyy", "Dzz", "fa", "md", "cl", "cp", "angle_deg"):
-            out[key] = np.nan
         return out
-    mean_tensor = tensor[roi].mean(axis=0)
+    w = np.ones(n) if weights is None else np.asarray(weights)[roi]
+    if not w.sum() > 0:
+        logger.warning(
+            "ROI weights of a %s ROI sum to %s; using unit weights", group, w.sum()
+        )
+        w = np.ones(n)
+    out["sum_w"] = float(w.sum())
+    out["n_eff"] = float(w.sum() ** 2 / np.sum(w**2))
+    mean_tensor = np.tensordot(w, tensor[roi], axes=1) / w.sum()
     out["Dxx"], out["Dyy"], out["Dzz"] = np.diag(mean_tensor)
     for key in ("fa", "md", "cl", "cp"):
-        out[key] = float(maps[key][roi].mean())
+        out[key] = float(np.average(maps[key][roi], weights=w))
     cos_a = np.clip(np.abs(evecs[roi][:, FIBRE_AXIS[group], 0]), 0.0, 1.0)
-    out["angle_deg"] = float(np.degrees(np.arccos(cos_a)).mean())
+    out["angle_deg"] = float(np.average(np.degrees(np.arccos(cos_a)), weights=w))
     return out
 
 
-def alps_index(tensor, evecs, maps, rois):
+def _alps_ratio(proj, assoc):
+    num = np.mean([proj["Dxx"], assoc["Dxx"]])
+    den = np.mean([proj["Dyy"], assoc["Dzz"]])
+    return float(num / den)
+
+
+def alps_index(tensor, evecs, maps, rois, *, weights=None):
     """ALPS index per hemisphere and the metrics of each ROI.
 
     Parameters
@@ -595,21 +984,39 @@ def alps_index(tensor, evecs, maps, rois):
         Output of :func:`eigen_maps`.
     rois : dict
         ``{(hemisphere, group): bool mask}``.
+    weights : dict, optional
+        ``{(hemisphere, group): float map}``. The index is then the ratio of
+        weighted mean diffusivities; ``alps_unweighted`` uses unit weights in
+        the same ROIs.
 
     Returns
     -------
     dict
-        ``{hemisphere: {"alps": float, "proj": {...}, "assoc": {...}}}`` and
-        ``"mean"``: the mean of the hemispheric indices.
+        ``{hemisphere: {"alps", "alps_unweighted", "proj": {...},
+        "assoc": {...}}}``, and ``"mean"`` and ``"mean_unweighted"``: the
+        means of the hemispheric indices.
     """
     result = {}
     for hemi in HEMISPHERE_SIGN:
-        proj = roi_metrics(tensor, evecs, maps, rois[(hemi, "proj")], "proj")
-        assoc = roi_metrics(tensor, evecs, maps, rois[(hemi, "assoc")], "assoc")
-        num = np.mean([proj["Dxx"], assoc["Dxx"]])
-        den = np.mean([proj["Dyy"], assoc["Dzz"]])
-        result[hemi] = {"alps": float(num / den), "proj": proj, "assoc": assoc}
-    result["mean"] = float(np.mean([result[h]["alps"] for h in HEMISPHERE_SIGN]))
+        m, u = {}, {}
+        for g in ("proj", "assoc"):
+            roi = rois[(hemi, g)]
+            u[g] = roi_metrics(tensor, evecs, maps, roi, g)
+            m[g] = (
+                u[g]
+                if weights is None
+                else roi_metrics(
+                    tensor, evecs, maps, roi, g, weights=weights[(hemi, g)]
+                )
+            )
+        result[hemi] = {
+            "alps": _alps_ratio(m["proj"], m["assoc"]),
+            "alps_unweighted": _alps_ratio(u["proj"], u["assoc"]),
+            "proj": m["proj"],
+            "assoc": m["assoc"],
+        }
+    for key, src in (("mean", "alps"), ("mean_unweighted", "alps_unweighted")):
+        result[key] = float(np.mean([result[h][src] for h in HEMISPHERE_SIGN]))
     return result
 
 
@@ -627,8 +1034,9 @@ def compute_alps(
     registration,
     *,
     bvec_convention="fsl",
-    roi_methods=("sphere", "data"),
+    roi_methods=ROI_METHODS,
     find_kwargs=None,
+    legacy_kwargs=None,
 ):
     """Run both frames and the requested ROI methods.
 
@@ -645,14 +1053,25 @@ def compute_alps(
     registration : dict
         Output of :func:`register_to_template`, or any dict with
         ``final_affine`` and a ``coords`` array of template coordinates.
+    roi_methods : sequence of str
+        Any of :data:`ROI_METHODS`.
+    find_kwargs : dict, optional
+        Keyword arguments of :func:`find_alps_rois_v2` (``data``).
+    legacy_kwargs : dict, optional
+        Keyword arguments of :func:`find_alps_rois` (``data-legacy``).
 
     Returns
     -------
     dict
-        ``results[(method, frame)]`` from :func:`alps_index`, ``rois``,
-        ``frames`` (rotations) and ``info``.
+        ``results[(method, frame)]`` from :func:`alps_index`; ``rois`` and
+        ``weights`` keyed ``sphere`` or ``<method>-<frame>``; ``fields`` (soft
+        weight maps of ``data``); ``frames`` (rotations) and ``info``.
     """
+    unknown = set(roi_methods) - set(ROI_METHODS)
+    if unknown:
+        raise ValueError(f"Unknown ROI methods: {sorted(unknown)}")
     find_kwargs = dict(find_kwargs or {})
+    legacy_kwargs = dict(legacy_kwargs or {})
     M = bvec_frame_to_world(affine, convention=bvec_convention)
     R = template_rotation(registration["final_affine"])
     Q = R.T @ M
@@ -662,8 +1081,14 @@ def compute_alps(
         coords = native_template_coords(registration, mask.shape, affine)
     valid = mask & np.all(np.isfinite(coords), axis=-1)
 
+    # Native world mm on template-aligned axes: p -> R^T p for each voxel.
+    affine = np.asarray(affine)
+    ijk = np.indices(mask.shape).reshape(3, -1).T
+    world = ijk @ affine[:3, :3].T + affine[:3, 3]
+    anat = (world @ R).reshape(mask.shape + (3,))
+
     maps = eigen_maps(evals)
-    voxel_size = np.sqrt((np.asarray(affine)[:3, :3] ** 2).sum(axis=0))
+    voxel_size = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
     ventricles = ventricle_mask(
         maps, coords, valid, voxel_volume=float(np.prod(voxel_size))
     )
@@ -672,12 +1097,15 @@ def compute_alps(
         "template": (rotate_tensor(tensor, Q), rotate_vectors(evecs, Q)),
     }
 
-    results, rois, info = {}, {}, {}
+    results, rois, weights, fields, info = {}, {}, {}, {}, {}
+    sphere = sphere_rois(coords, valid)
     if "sphere" in roi_methods:
-        rois["sphere"] = sphere_rois(coords, valid)
+        rois["sphere"] = sphere
     for frame, (D, V) in frames.items():
-        if "data" in roi_methods:
-            key = f"data-{frame}"
+        if "sphere" in roi_methods:
+            results[("sphere", frame)] = alps_index(D, V, maps, sphere)
+        if "data-legacy" in roi_methods:
+            key = f"data-legacy-{frame}"
             rois[key], info[key] = find_alps_rois(
                 V,
                 maps,
@@ -685,15 +1113,31 @@ def compute_alps(
                 valid,
                 voxel_size=voxel_size,
                 ventricles=ventricles,
+                **legacy_kwargs,
+            )
+            results[("data-legacy", frame)] = alps_index(D, V, maps, rois[key])
+        if "data" in roi_methods:
+            key = f"data-{frame}"
+            rois[key], weights[key], info[key], fields[key] = find_alps_rois_v2(
+                V,
+                maps,
+                coords,
+                valid,
+                anat=anat,
+                voxel_size=voxel_size,
+                ventricles=ventricles,
+                sphere=sphere,
                 **find_kwargs,
             )
-            results[("data", frame)] = alps_index(D, V, maps, rois[key])
-        if "sphere" in roi_methods:
-            results[("sphere", frame)] = alps_index(D, V, maps, rois["sphere"])
+            results[("data", frame)] = alps_index(
+                D, V, maps, rois[key], weights=weights[key]
+            )
 
     return {
         "results": results,
         "rois": rois,
+        "weights": weights,
+        "fields": fields,
         "info": info,
         "maps": maps,
         "ventricles": ventricles,
@@ -713,11 +1157,15 @@ def compute_alps(
 # Outputs
 # ---------------------------------------------------------------------------
 
-CSV_FIELDS = ["method", "frame", "hemisphere", "alps", "alps_mean"] + [
-    f"{group}_{key}"
-    for group in ("proj", "assoc")
-    for key in ("Dxx", "Dyy", "Dzz", "nvox", "fa", "md", "cl", "cp", "angle_deg")
-]
+CSV_FIELDS = [
+    "method",
+    "frame",
+    "hemisphere",
+    "alps",
+    "alps_mean",
+    "alps_unweighted",
+    "alps_mean_unweighted",
+] + [f"{group}_{key}" for group in ("proj", "assoc") for key in ROI_METRIC_KEYS]
 
 
 def results_rows(results):
@@ -731,6 +1179,8 @@ def results_rows(results):
                 "hemisphere": hemi,
                 "alps": res[hemi]["alps"],
                 "alps_mean": res["mean"],
+                "alps_unweighted": res[hemi]["alps_unweighted"],
+                "alps_mean_unweighted": res["mean_unweighted"],
             }
             for group in ("proj", "assoc"):
                 for key, value in res[hemi][group].items():
@@ -755,6 +1205,11 @@ def roi_label_image(rois):
     return labels
 
 
+def roi_weight_image(weights):
+    """4D float image, one volume per ROI in :data:`ROI_LABELS` order."""
+    return np.stack([weights[key] for key in ROI_LABELS], axis=-1).astype(np.float32)
+
+
 def plot_qc(out, b0, template_native, path):
     """Save a QC figure: ROIs on colour FA, and the registration check.
 
@@ -770,8 +1225,11 @@ def plot_qc(out, b0, template_native, path):
     fa = out["maps"]["fa"]
     cfa = np.clip(np.abs(out["evecs_template"][..., :, 0]) * fa[..., None], 0, 1)
     roi_sets = {
-        k: v for k, v in out["rois"].items() if k in ("sphere", "data-template")
+        k: out["rois"][k]
+        for k in ("sphere", "data-legacy-template", "data-template")
+        if k in out["rois"]
     }
+    field = out["fields"].get("data-template")
     any_roi = np.zeros(fa.shape, dtype=bool)
     for rois in roi_sets.values():
         for roi in rois.values():
@@ -783,7 +1241,7 @@ def plot_qc(out, b0, template_native, path):
     )
 
     colours = {"proj": "white", "assoc": "yellow"}
-    n = len(roi_sets) + 1
+    n = len(roi_sets) + 1 + (field is not None)
     fig, axes = plt.subplots(1, n, figsize=(5 * n, 5))
     for ax, (name, rois) in zip(axes, roi_sets.items()):
         ax.imshow(np.transpose(cfa[:, :, k], (1, 0, 2)), origin="lower")
@@ -795,6 +1253,18 @@ def plot_qc(out, b0, template_native, path):
         if vent.any():
             ax.contour(vent, levels=[0.5], colors="cyan", linewidths=0.5)
         ax.set_title(f"{name} ROIs (slice {k})")
+        ax.axis("off")
+
+    if field is not None:
+        ax = axes[len(roi_sets)]
+        wmap = np.maximum(field["proj"], field["assoc"])[:, :, k].T
+        im = ax.imshow(wmap, origin="lower", cmap="magma", vmin=0, vmax=1)
+        for (_hemi, group), roi in out["rois"]["data-template"].items():
+            sl = roi[:, :, k].T.astype(float)
+            if sl.any():
+                ax.contour(sl, levels=[0.5], colors=colours[group], linewidths=1)
+        fig.colorbar(im, ax=ax, fraction=0.046)
+        ax.set_title("data soft weights (max of proj, assoc)")
         ax.axis("off")
 
     ax = axes[-1]
@@ -822,7 +1292,13 @@ def build_parser():
     p.add_argument("bvec", help="b-vectors file.")
     p.add_argument("--mask", help="Brain mask. Default: median_otsu on the b0s.")
     p.add_argument("--out-dir", default="alps_out", help="Output directory.")
-    p.add_argument("--roi-method", choices=["sphere", "data", "both"], default="both")
+    p.add_argument(
+        "--roi-method",
+        nargs="+",
+        choices=ROI_METHODS,
+        default=list(ROI_METHODS),
+        help="ROI methods to run. Default: all.",
+    )
     p.add_argument(
         "--bvec-convention", choices=["fsl", "voxel", "world"], default="fsl"
     )
@@ -838,14 +1314,56 @@ def build_parser():
     return p
 
 
+def fit_and_register(
+    data, affine, bvals, bvecs, *, mask=None, b0_threshold=50.0, reg="affine"
+):
+    """Brain mask, tensor fit and template registration of a DWI.
+
+    Parameters
+    ----------
+    data : ndarray (X, Y, Z, N)
+    affine : ndarray (4, 4)
+    bvals, bvecs : ndarray
+    mask : ndarray (X, Y, Z) of bool, optional
+        Default: ``median_otsu`` on the b0 volumes.
+    b0_threshold : float, optional
+    reg : {"affine", "syn"}, optional
+
+    Returns
+    -------
+    fit : TensorFit
+    mask : ndarray of bool
+    registration : dict
+        Output of :func:`register_to_template`.
+    b0 : ndarray
+        Mean b0 volume.
+    """
+    from dipy.core.gradients import gradient_table
+    from dipy.reconst.dti import TensorModel
+    from dipy.segment.mask import median_otsu
+
+    gtab = gradient_table(bvals, bvecs=bvecs, b0_threshold=b0_threshold)
+    b0_idx = np.flatnonzero(gtab.b0s_mask)
+    b0 = data[..., b0_idx].mean(axis=-1)
+    if mask is None:
+        _, mask = median_otsu(
+            data, vol_idx=b0_idx, median_radius=4, numpass=4, dilate=2
+        )
+        logger.info("Computed brain mask with median_otsu")
+
+    logger.info("Fitting DTI on %d volumes", data.shape[-1])
+    fit = TensorModel(gtab).fit(data, mask=mask)
+
+    logger.info("Registering mean b0 to the MNI template (%s)", reg)
+    registration = register_to_template(b0, affine, mask, method=reg)
+    return fit, mask, registration, b0
+
+
 def main(*, argv=None):
     import nibabel as nib
 
-    from dipy.core.gradients import gradient_table
     from dipy.io.gradients import read_bvals_bvecs
     from dipy.io.image import load_nifti, save_nifti
-    from dipy.reconst.dti import TensorModel
-    from dipy.segment.mask import median_otsu
 
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -857,26 +1375,20 @@ def main(*, argv=None):
     if args.max_bval is not None:
         keep = bvals <= args.max_bval
         data, bvals, bvecs = data[..., keep], bvals[keep], bvecs[keep]
-    gtab = gradient_table(bvals, bvecs=bvecs, b0_threshold=args.b0_threshold)
-    b0_idx = np.flatnonzero(gtab.b0s_mask)
-    b0 = data[..., b0_idx].mean(axis=-1)
-
-    if args.mask:
-        mask = nib.load(args.mask).get_fdata() > 0
-    else:
-        _, mask = median_otsu(
-            data, vol_idx=b0_idx, median_radius=4, numpass=4, dilate=2
-        )
+    mask = nib.load(args.mask).get_fdata() > 0 if args.mask else None
+    fit, mask, registration, b0 = fit_and_register(
+        data,
+        affine,
+        bvals,
+        bvecs,
+        mask=mask,
+        b0_threshold=args.b0_threshold,
+        reg=args.reg,
+    )
+    if not args.mask:
         save_nifti(out_dir / "mask.nii.gz", mask.astype(np.uint8), affine)
-        logger.info("Computed brain mask with median_otsu")
 
-    logger.info("Fitting DTI on %d volumes", data.shape[-1])
-    fit = TensorModel(gtab).fit(data, mask=mask)
-
-    logger.info("Registering mean b0 to the MNI template (%s)", args.reg)
-    registration = register_to_template(b0, affine, mask, method=args.reg)
-
-    methods = ("sphere", "data") if args.roi_method == "both" else (args.roi_method,)
+    methods = tuple(m for m in ROI_METHODS if m in args.roi_method)
     out = compute_alps(
         fit.quadratic_form,
         fit.evecs,
@@ -891,6 +1403,10 @@ def main(*, argv=None):
     write_csv(results_rows(out["results"]), out_dir / "alps.csv")
     for name, rois in out["rois"].items():
         save_nifti(out_dir / f"rois_{name}.nii.gz", roi_label_image(rois), affine)
+    for name, weights in out["weights"].items():
+        save_nifti(
+            out_dir / f"weights_{name}.nii.gz", roi_weight_image(weights), affine
+        )
     frames = {k: np.asarray(v).tolist() for k, v in out["frames"].items()}
     frames["final_affine"] = np.asarray(registration["final_affine"]).tolist()
     meta = {"frames": frames, "data_driven": out["info"], "args": vars(args)}
@@ -904,12 +1420,13 @@ def main(*, argv=None):
 
     for (method, frame), res in out["results"].items():
         logger.info(
-            "ALPS %-6s %-8s L=%.3f R=%.3f mean=%.3f",
+            "ALPS %-11s %-8s L=%.3f R=%.3f mean=%.3f (unweighted %.3f)",
             method,
             frame,
             res["L"]["alps"],
             res["R"]["alps"],
             res["mean"],
+            res["mean_unweighted"],
         )
     logger.info(
         "Template rotation of the b-vector frame: %.2f deg", out["frames"]["tilt_deg"]

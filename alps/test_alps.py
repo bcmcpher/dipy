@@ -109,7 +109,7 @@ def test_frame_tilt_ignores_flips():
     npt.assert_allclose(total, 10.0, atol=1e-6)
 
 
-@pytest.mark.parametrize("method", ["sphere", "data"])
+@pytest.mark.parametrize("method", A.ROI_METHODS)
 def test_phantom_alps(method):
     D, coords, affine, mask, _ = phantom()
     out = run(D, coords, affine, mask)
@@ -119,6 +119,7 @@ def test_phantom_alps(method):
             assert res[hemi]["proj"]["nvox"] > 0
             assert res[hemi]["assoc"]["nvox"] > 0
             npt.assert_allclose(res[hemi]["alps"], TRUE_ALPS, rtol=1e-6)
+            npt.assert_allclose(res[hemi]["alps_unweighted"], TRUE_ALPS, rtol=1e-6)
 
 
 @pytest.mark.parametrize("angles", [[10, 0, 0], [0, 10, 0], [0, 0, 10], [-8, 6, 5]])
@@ -132,8 +133,9 @@ def test_rotation_correction_recovers_alps(angles):
     npt.assert_allclose(corrected, TRUE_ALPS, rtol=1e-6)
     assert abs(uncorrected - TRUE_ALPS) / TRUE_ALPS > 0.01
     npt.assert_allclose(out["frames"]["tilt_deg"], A.rotation_angle(R), atol=1e-6)
-    data = out["results"][("data", "template")]["mean"]
-    npt.assert_allclose(data, TRUE_ALPS, rtol=1e-6)
+    for method in ("data", "data-legacy"):
+        data = out["results"][(method, "template")]["mean"]
+        npt.assert_allclose(data, TRUE_ALPS, rtol=1e-6)
 
 
 def test_fsl_convention_end_to_end():
@@ -146,10 +148,11 @@ def test_fsl_convention_end_to_end():
     npt.assert_allclose(out["frames"]["tilt_deg"], 0.0, atol=1e-6)
 
 
-def test_data_driven_rejects_crossing_voxels():
+@pytest.mark.parametrize("method", ["data", "data-legacy"])
+def test_data_driven_rejects_crossing_voxels(method):
     D, coords, affine, mask, cross = phantom(crossing=True)
     out = run(D, coords, affine, mask)
-    rois = out["rois"]["data-template"]
+    rois = out["rois"][f"{method}-template"]
     for hemi in ("L", "R"):
         roi = rois[(hemi, "proj")]
         assert roi.any()
@@ -159,28 +162,97 @@ def test_data_driven_rejects_crossing_voxels():
         out["rois"]["sphere"][("L", "proj")] & cross
     ).any()
     npt.assert_allclose(
-        out["results"][("data", "template")]["mean"], TRUE_ALPS, rtol=1e-6
+        out["results"][(method, "template")]["mean"], TRUE_ALPS, rtol=1e-6
     )
 
 
-def test_data_driven_proj_medial_to_assoc():
+@pytest.mark.parametrize("method", ["data", "data-legacy"])
+def test_data_driven_proj_medial_to_assoc(method):
     D, coords, affine, mask, _ = phantom()
     out = run(D, coords, affine, mask)
-    rois = out["rois"]["data-template"]
+    rois = out["rois"][f"{method}-template"]
     for hemi, sign in A.HEMISPHERE_SIGN.items():
         x_proj = sign * coords[rois[(hemi, "proj")]][:, 0]
         x_assoc = sign * coords[rois[(hemi, "assoc")]][:, 0]
         assert x_proj.max() < x_assoc.min()
 
 
+@pytest.mark.parametrize("radius", [2.5, 4.0])
+def test_v2_roi_size_is_voxel_budget(radius):
+    D, coords, affine, mask, _ = phantom()
+    evals, evecs = decompose_tensor(D)
+    registration = {"final_affine": np.eye(4), "coords": coords}
+    out = A.compute_alps(
+        D,
+        evecs,
+        evals,
+        mask,
+        affine,
+        registration,
+        bvec_convention="world",
+        roi_methods=("data",),
+        find_kwargs={"radius": radius},
+    )
+    budget = int(round(4 / 3 * np.pi * radius**3 / 8.0))
+    for hemi, hi in out["info"]["data-template"].items():
+        assert not hi["fallback"]
+        assert hi["voxel_budget"] == budget
+        for group in ("proj", "assoc"):
+            roi = out["rois"]["data-template"][(hemi, group)]
+            assert roi.sum() == budget
+            # Compact: every voxel within 2 * radius of the seed, so no two
+            # voxels are more than 4 * radius apart.
+            pts = coords[roi]
+            span = np.linalg.norm(pts[:, None] - pts[None], axis=-1).max()
+            assert span <= 4 * radius + 1e-6
+            w = out["weights"]["data-template"][(hemi, group)]
+            assert np.all(w[~roi] == 0)
+            assert np.all((w[roi] > 0) & (w[roi] <= 1))
+
+
+def test_v2_falls_back_on_isotropic_phantom():
+    D, coords, affine, mask, _ = phantom()
+    D[...] = np.eye(3) * 0.7e-3
+    out = run(D, coords, affine, mask)
+    for frame in ("bvec", "template"):
+        for hi in out["info"][f"data-{frame}"].values():
+            assert hi["fallback"]
+        rois = out["rois"][f"data-{frame}"]
+        for key, roi in rois.items():
+            npt.assert_array_equal(roi, out["rois"]["sphere"][key])
+        res = out["results"][("data", frame)]
+        npt.assert_allclose(res["mean"], 1.0, rtol=1e-6)
+        assert np.isfinite(res["mean_unweighted"])
+
+
+def test_v2_weights_continuous_under_small_rotation():
+    D, coords, affine, mask, _ = phantom()
+    base = run(D, coords, affine, mask)
+    # Uncorrected 1 deg tilt of the tensors: the bvec frame sees it.
+    tilted = run(A.rotate_tensor(D, _rot([1, 0, 0])), coords, affine, mask)
+    for key, roi in base["rois"]["data-bvec"].items():
+        npt.assert_array_equal(tilted["rois"]["data-bvec"][key], roi)
+        w0 = base["weights"]["data-bvec"][key]
+        w1 = tilted["weights"]["data-bvec"][key]
+        assert np.max(np.abs(w1 - w0)) < 0.02
+    for field in ("proj", "assoc"):
+        f0 = base["fields"]["data-bvec"][field]
+        f1 = tilted["fields"]["data-bvec"][field]
+        assert np.max(np.abs(f1 - f0)) < 0.02
+
+
 def test_results_rows_and_labels(tmp_path):
     D, coords, affine, mask, _ = phantom()
     out = run(D, coords, affine, mask)
     rows = A.results_rows(out["results"])
-    assert len(rows) == 2 * 2 * 2  # methods x frames x hemispheres
+    assert len(rows) == 3 * 2 * 2  # methods x frames x hemispheres
     A.write_csv(rows, tmp_path / "alps.csv")
     labels = A.roi_label_image(out["rois"]["sphere"])
     assert set(np.unique(labels)) == {0, 1, 2, 3, 4}
+    weights = A.roi_weight_image(out["weights"]["data-template"])
+    assert weights.shape == mask.shape + (4,)
+    for i, key in enumerate(A.ROI_LABELS):
+        npt.assert_array_equal(weights[..., i] > 0, out["rois"]["data-template"][key])
 
 
 def test_tilt_dwi_moves_anatomy_and_bvecs_together():

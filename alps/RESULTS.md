@@ -1,6 +1,6 @@
 # ALPS script: current findings
 
-Status on 2026-11-12, branch `plan/alps`. All runs use DTI on b ≤ 1100 (Stanford: b = 2000
+Status on 2026-11-13, branch `plan/alps`. All runs use DTI on b ≤ 1100 (Stanford: b = 2000
 only). The tables after the findings come from `python alps/experiments.py summary`. Do not
 edit them by hand; regenerate them and paste the new `alps_results/tables.md`.
 
@@ -27,52 +27,83 @@ edit them by hand; regenerate them and paste the new `alps_results/tables.md`.
 4. **Noise floor.** On Sherbrooke a ±0.5° tilt changes the sphere ALPS by up to 15%. A 5 mm
    sphere holds about 7 voxels at 2 mm, and the registration estimate of the tilt moves by
    about 1°. On HBN the same test changes ALPS by 1.5%.
-5. **Data-driven ROIs.** The finder uses hard thresholds. It returns no ROI (NaN) in 2 of
-   the 12 HBN tilt runs, and its L/R difference reaches 22%. This is the next work item.
-6. **b-value.** Stanford (b = 2000) gives lower ALPS than HBN (b = 1000): 1.51 against 1.71
+5. **Data-driven ROIs, v1 (`data-legacy`).** The finder uses hard thresholds. It returns
+   no ROI (NaN) in 1 of the 7 HBN tilt runs per frame, and its L/R difference ranges from
+   −20% to +3% across tilts (template frame).
+6. **Data-driven ROIs, v2 (`data`).** Soft weights, a shared centre and region growing.
+   Growth stays within 5 mm of the seed in 3D (2 × `radius`).
+   - No NaN and no fallback in any run: 3 direct runs, 7 HBN tilts, 41 sensitivity runs
+     per dataset.
+   - ROI size: 11 voxels per ROI on HBN (1.8 mm), 8 on Sherbrooke and Stanford (2 mm). One
+     Stanford association ROI stops at 7 voxels: no more neighbours pass the angle limit.
+   - HBN tilt CV (template frame) is 0.6%, against 1.6% for spheres and 3.5% for v1.
+   - The L/R difference is stable across tilts (SD 2.3 points; spheres 3.6) but large:
+     L is 18% lower than R on HBN. The left projection ROI has a higher Dyy (0.44e-3
+     against 0.34e-3 mm²/s) and sits lower in z. Sherbrooke shows the opposite sign
+     (L 1.73, R 1.49) and Stanford is symmetric (1.33 / 1.33), so this is subject anatomy
+     or ROI placement, not a sign error. It needs a visual check.
+   - Weighted and unweighted ALPS differ by ≤ 1.5%. Most of the gain comes from the
+     centre choice and the region growing, not from the weights.
+7. **Soft-score sensitivity (v2).** Each soft-score centre and width moved by ±10% and
+   ±20%; fit and registration fixed. No perturbation causes a fallback.
+   - Largest ALPS change at ±10%: HBN 3.3% (planarity centre ×1.1), Sherbrooke 3.5%
+     (planarity width ×1.1), Stanford 3.0% (angle centre ×0.9). All three are at or just
+     above the ≤ 3% criterion; HBN, the tuning set, misses it by 0.3 points.
+   - At ±20% the largest change is 6.9% (HBN planarity centre). Planarity is the most
+     sensitive score on every dataset.
+   - With 8–11 voxel ROIs, one voxel swap changes ALPS by several percent.
+   - MD has a small effect: ≤ 2.5% at ±10% on every dataset (HBN 0.8%). The MD score is
+     not what places the ROI next to the ventricle; the box and the planarity and
+     orientation scores do that.
+8. **b-value.** Stanford (b = 2000) gives lower ALPS than HBN (b = 1000): 1.51 against 1.71
    for spheres. The datasets differ in subject and scanner too, so this is not a clean
    b-value effect.
 
 ## Open questions
 
-- Data-driven ROI rework: soft-weighted ROIs, fixed-volume region growing, and RecoBundles
-  CST/SLF bundles as an anatomical reference.
+- Sherbrooke tilt series not yet rerun with v2 (its table shows v1 as `data-legacy`).
+- Visual audit of the v2 ROIs on HBN (left projection ROI low in z).
+- Held-out sensitivity is 3–8% at ±10%. Compare it with the bootstrap noise floor (next
+  subcommand) before any change to the defaults; 8-voxel ROIs may be the limit.
+- Periventricular white-matter hyperintensities raise MD and may lower the MD weight in
+  damaged tissue, which would bias ALPS upwards in patients. Free-water fraction
+  (Phase 2) is the planned alternative to the MD score.
 - Group comparisons are deferred until the feature set is complete and a comparison plan
   exists.
 
-
 ## ALPS index (direct runs, mean of L and R; L/R in brackets)
 
-| dataset | measured tilt (deg) | sphere bvec | sphere template | data bvec | data template |
-|---|---|---|---|---|---|
-| sherbrooke | 8.33 | 1.838 (1.604/2.073) | 1.814 (1.653/1.975) | 1.371 (1.311/1.430) | 1.392 (1.102/1.681) |
-| hbn | 3.95 | 1.738 (1.728/1.747) | 1.712 (1.692/1.731) | 1.561 (1.597/1.526) | 1.531 (1.556/1.507) |
-| stanford | 2.42 | 1.498 (1.525/1.472) | 1.506 (1.539/1.473) | 1.358 (1.313/1.403) | 1.331 (1.298/1.364) |
+| dataset | measured tilt (deg) | sphere bvec | sphere template | data-legacy bvec | data-legacy template | data bvec | data template |
+|---|---|---|---|---|---|---|---|
+| sherbrooke | 8.33 | 1.838 (1.604/2.073) | 1.814 (1.653/1.975) | 1.371 (1.311/1.430) | 1.392 (1.102/1.681) | 1.516 (1.422/1.610) | 1.609 (1.727/1.491) |
+| hbn | 3.95 | 1.738 (1.728/1.747) | 1.712 (1.692/1.731) | 1.561 (1.597/1.526) | 1.531 (1.556/1.507) | 1.611 (1.428/1.793) | 1.549 (1.393/1.704) |
+| stanford | 2.42 | 1.498 (1.525/1.472) | 1.506 (1.539/1.473) | 1.358 (1.313/1.403) | 1.331 (1.298/1.364) | 1.347 (1.347/1.347) | 1.328 (1.329/1.327) |
 
 ## Tilt series: sherbrooke (about x; ALPS mean of L and R)
 
-| tilt (deg) | measured tilt (deg) | sphere bvec | sphere template | data bvec | data template |
-|---|---|---|---|---|---|
-| +0.0 | 8.33 | 1.838 | 1.814 | 1.371 | 1.392 |
-| +0.5 | 9.34 | 1.538 | 1.547 | 1.368 | 1.491 |
-| -0.5 | 9.21 | 1.712 | 1.657 | 1.473 | 1.488 |
-| +5.0 | 14.31 | 1.716 | 1.746 | 1.607 | 1.563 |
-| -5.0 | 5.66 | 1.750 | 1.713 | 1.581 | 1.608 |
-| +10.0 | 17.04 | 1.484 | 1.672 | 1.317 | 1.501 |
-| -10.0 | 4.68 | 1.718 | 1.709 | 1.497 | 1.490 |
-| CV across angles | | 6.8% | 4.5% | 7.1% | 4.2% |
+| tilt (deg) | measured tilt (deg) | sphere bvec | sphere template | data-legacy bvec | data-legacy template | data bvec | data template |
+|---|---|---|---|---|---|---|---|
+| +0.0 | 8.33 | 1.838 | 1.814 | 1.371 | 1.392 | — | — |
+| +0.5 | 9.34 | 1.538 | 1.547 | 1.368 | 1.491 | — | — |
+| -0.5 | 9.21 | 1.712 | 1.657 | 1.473 | 1.488 | — | — |
+| +5.0 | 14.31 | 1.716 | 1.746 | 1.607 | 1.563 | — | — |
+| -5.0 | 5.66 | 1.750 | 1.713 | 1.581 | 1.608 | — | — |
+| +10.0 | 17.04 | 1.484 | 1.672 | 1.317 | 1.501 | — | — |
+| -10.0 | 4.68 | 1.718 | 1.709 | 1.497 | 1.490 | — | — |
+| CV across angles | | 6.8% | 4.5% | 7.1% | 4.2% | — | — |
 
 ## Tilt series: hbn (about x; ALPS mean of L and R)
 
-| tilt (deg) | measured tilt (deg) | sphere bvec | sphere template | data bvec | data template |
-|---|---|---|---|---|---|
-| +0.0 | 3.96 | 1.738 | 1.712 | 1.561 | 1.531 |
-| +0.5 | 4.19 | 1.765 | 1.737 | NaN | 1.495 |
-| +5.0 | 8.33 | 1.700 | 1.681 | 1.635 | 1.613 |
-| -5.0 | 3.16 | 1.655 | 1.668 | 1.462 | 1.614 |
-| +10.0 | 13.26 | 1.634 | 1.657 | 1.503 | NaN |
-| -10.0 | 7.31 | 1.629 | 1.710 | 1.526 | 1.602 |
-| CV across angles | | 3.1% | 1.7% | 3.8% (1 NaN) | 3.1% (1 NaN) |
+| tilt (deg) | measured tilt (deg) | sphere bvec | sphere template | data-legacy bvec | data-legacy template | data bvec | data template |
+|---|---|---|---|---|---|---|---|
+| +0.0 | 3.96 | 1.738 | 1.712 | 1.561 | 1.531 | 1.611 | 1.548 |
+| +0.5 | 4.19 | 1.765 | 1.737 | NaN | 1.495 | 1.650 | 1.559 |
+| -0.5 | 3.42 | 1.743 | 1.720 | 1.698 | 1.659 | 1.618 | 1.573 |
+| +5.0 | 8.33 | 1.700 | 1.681 | 1.635 | 1.613 | 1.660 | 1.551 |
+| -5.0 | 3.16 | 1.655 | 1.668 | 1.462 | 1.614 | 1.573 | 1.560 |
+| +10.0 | 13.26 | 1.634 | 1.657 | 1.503 | NaN | 1.631 | 1.547 |
+| -10.0 | 7.31 | 1.629 | 1.710 | 1.526 | 1.602 | 1.466 | 1.548 |
+| CV across angles | | 3.1% | 1.6% | 5.1% (1 NaN) | 3.5% (1 NaN) | 3.8% | 0.6% |
 
 ## Template registration under tilt (skull-stripped b0 and template)
 
@@ -93,3 +124,54 @@ the mapped MNI ROI centres and the 0-deg centres rotated by the tilt.
 | hbn | affine | +5.0 | 0.21 | 0.14 | 0.845–0.906 | 66.1 |
 | hbn | affine | +10.0 | 0.18 | 0.12 | 0.845–0.907 | 70.5 |
 | hbn | affine | -10.0 | 0.3 | 0.1 | 0.846–0.907 | 47.5 |
+
+## Soft-score sensitivity: sherbrooke (`data`, template frame)
+
+Baseline ALPS 1.609 (L 1.727, R 1.491). Cells: change of the mean ALPS in % (smallest ROI Dice against the baseline; F = number of hemispheres that fell back).
+
+| score | part | x0.8 | x0.9 | x1.1 | x1.2 |
+|---|---|---|---|---|---|
+| angle | centre | +2.5 (0.50) | +1.0 (0.62) | -2.4 (0.88) | -2.9 (0.75) |
+| angle | width | -2.3 (0.88) | -2.3 (0.88) | +0.0 (1.00) | +0.0 (1.00) |
+| fa | centre | -0.0 (1.00) | -0.0 (1.00) | +0.0 (1.00) | -2.1 (0.88) |
+| fa | width | -0.0 (1.00) | -0.0 (1.00) | +0.0 (1.00) | +0.0 (1.00) |
+| cl | centre | +0.3 (0.88) | +0.7 (0.88) | -1.7 (0.88) | -1.9 (0.62) |
+| cl | width | +0.7 (0.88) | -0.1 (0.88) | -2.1 (0.88) | -2.1 (0.88) |
+| cp | centre | -2.2 (0.62) | -1.3 (0.62) | +0.2 (0.88) | -0.5 (0.75) |
+| cp | width | -0.2 (0.88) | +0.0 (0.88) | +3.5 (0.75) | +3.4 (0.75) |
+| md | centre | -0.7 (0.50) | -2.1 (0.88) | +0.1 (0.62) | +0.1 (0.62) |
+| md | width | +0.1 (0.62) | -0.0 (1.00) | +0.0 (1.00) | -2.1 (0.88) |
+
+## Soft-score sensitivity: hbn (`data`, template frame)
+
+Baseline ALPS 1.549 (L 1.393, R 1.704). Cells: change of the mean ALPS in % (smallest ROI Dice against the baseline; F = number of hemispheres that fell back).
+
+| score | part | x0.8 | x0.9 | x1.1 | x1.2 |
+|---|---|---|---|---|---|
+| angle | centre | +1.1 (0.82) | -0.3 (0.91) | -0.9 (0.45) | -1.3 (0.36) |
+| angle | width | -0.0 (0.91) | -0.0 (0.91) | -0.0 (1.00) | -0.0 (1.00) |
+| fa | centre | -0.1 (1.00) | -0.0 (1.00) | +0.1 (0.91) | +1.7 (0.91) |
+| fa | width | -0.1 (1.00) | -0.0 (1.00) | +0.0 (0.91) | +0.1 (0.91) |
+| cl | centre | -1.8 (0.73) | -0.8 (0.73) | +1.1 (0.91) | +2.4 (0.45) |
+| cl | width | -0.2 (0.91) | -0.1 (0.91) | +0.1 (0.91) | +0.1 (0.91) |
+| cp | centre | -4.5 (0.36) | -1.8 (0.45) | +3.3 (0.91) | +6.9 (0.82) |
+| cp | width | +1.4 (0.91) | -0.1 (0.91) | +0.1 (0.91) | +0.1 (0.91) |
+| md | centre | +1.4 (0.64) | -0.5 (0.91) | -0.8 (0.91) | -0.7 (0.82) |
+| md | width | +0.0 (0.91) | +0.1 (0.91) | -0.1 (0.91) | -0.1 (0.91) |
+
+## Soft-score sensitivity: stanford (`data`, template frame)
+
+Baseline ALPS 1.328 (L 1.329, R 1.327). Cells: change of the mean ALPS in % (smallest ROI Dice against the baseline; F = number of hemispheres that fell back).
+
+| score | part | x0.8 | x0.9 | x1.1 | x1.2 |
+|---|---|---|---|---|---|
+| angle | centre | +4.5 (0.12) | +3.0 (0.12) | -0.2 (1.00) | -0.3 (1.00) |
+| angle | width | +2.5 (0.12) | +2.5 (0.12) | +0.0 (1.00) | +0.0 (1.00) |
+| fa | centre | -0.0 (1.00) | -0.0 (1.00) | +2.5 (0.12) | +2.6 (0.12) |
+| fa | width | -0.0 (1.00) | -0.0 (1.00) | +2.5 (0.12) | +2.5 (0.12) |
+| cl | centre | +2.1 (0.75) | +0.3 (1.00) | +1.9 (0.12) | +2.3 (0.12) |
+| cl | width | +0.0 (1.00) | -0.0 (1.00) | +0.0 (1.00) | +0.0 (1.00) |
+| cp | centre | +0.4 (0.12) | +1.3 (0.12) | +0.5 (1.00) | +2.2 (0.88) |
+| cp | width | +2.6 (0.12) | -0.0 (1.00) | +0.0 (1.00) | +0.0 (1.00) |
+| md | centre | +2.5 (0.12) | +2.5 (0.12) | +0.0 (1.00) | +0.0 (1.00) |
+| md | width | +0.0 (1.00) | +0.0 (1.00) | -0.0 (1.00) | -0.0 (1.00) |

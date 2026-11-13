@@ -7,6 +7,8 @@ Subcommands:
   image centre) and rerun the full pipeline at each angle.
 - ``regdiag``: register a tilted mean b0 to the template and score the rotation
   and the ROI placement against the known tilt.
+- ``sensitivity``: perturb each soft-score centre and width of the ``data``
+  method and rerun the ROI step only (fit and registration done once).
 - ``summary``: collect all results into CSV tables and a Markdown report.
 
 Results go to ``alps_results/<dataset>/<experiment>/``. Usage::
@@ -14,6 +16,7 @@ Results go to ``alps_results/<dataset>/<experiment>/``. Usage::
     python alps/experiments.py direct --dataset hbn
     python alps/experiments.py tilt --dataset hbn --angles 0 0.5 5 10 -5 -10
     python alps/experiments.py regdiag --dataset hbn
+    python alps/experiments.py sensitivity --dataset hbn
     python alps/experiments.py summary
 """
 
@@ -110,8 +113,11 @@ def load_dataset(name):
 
 def write_rows(rows, path):
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Union of the keys in first-seen order: rows from older runs may lack
+    # newer columns.
+    fields = list(dict.fromkeys(k for r in rows for k in r))
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(f, fieldnames=fields, restval="")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -170,6 +176,7 @@ def cmd_tilt(args):
                     "alps_L": res["L"]["alps"],
                     "alps_R": res["R"]["alps"],
                     "alps_mean": res["mean"],
+                    "alps_mean_unweighted": res["mean_unweighted"],
                 }
             )
     # Merge with earlier angles so the series can be extended run by run.
@@ -259,6 +266,86 @@ def cmd_regdiag(args):
     print(f"wrote {path}")
 
 
+def _dice(a, b):
+    total = a.sum() + b.sum()
+    return 1.0 if total == 0 else float(2 * (a & b).sum() / total)
+
+
+def cmd_sensitivity(args):
+    """Perturb each soft-score centre and width; rerun the ROI step only."""
+    data, affine, bvals, bvecs = load_dataset(args.dataset)
+    fit, mask, registration, _ = A.fit_and_register(data, affine, bvals, bvecs)
+    del data
+    registration["coords"] = A.native_template_coords(registration, mask.shape, affine)
+    tensor, evecs, evals = fit.quadratic_form, fit.evecs, fit.evals
+
+    def run(scores):
+        return A.compute_alps(
+            tensor,
+            evecs,
+            evals,
+            mask,
+            affine,
+            registration,
+            roi_methods=("data",),
+            find_kwargs={"scores": scores},
+        )
+
+    base = run({})
+    perturbations = [(None, None, 1.0)] + [
+        (name, part, factor)
+        for name in A.SOFT_SCORES
+        for part in ("centre", "width")
+        for factor in args.factors
+    ]
+    rows = []
+    for name, part, factor in perturbations:
+        if name is None:
+            out, scores = base, {}
+        else:
+            centre, width = A.SOFT_SCORES[name]
+            if part == "centre":
+                scores = {name: (centre * factor, width)}
+            else:
+                scores = {name: (centre, width * factor)}
+            out = run(scores)
+        for frame in ("bvec", "template"):
+            res, ref = out["results"][("data", frame)], base["results"][("data", frame)]
+            key = f"data-{frame}"
+            dice = [
+                _dice(out["rois"][key][k], base["rois"][key][k])
+                for k in base["rois"][key]
+            ]
+            fallbacks = sum(h["fallback"] for h in out["info"][key].values())
+            row = {
+                "param": name or "baseline",
+                "part": part or "",
+                "factor": factor,
+                "value": "" if name is None else scores[name][int(part == "width")],
+                "frame": frame,
+                "alps_L": res["L"]["alps"],
+                "alps_R": res["R"]["alps"],
+                "alps_mean": res["mean"],
+                "delta_pct": 100 * (res["mean"] / ref["mean"] - 1),
+                "delta_L_pct": 100 * (res["L"]["alps"] / ref["L"]["alps"] - 1),
+                "delta_R_pct": 100 * (res["R"]["alps"] / ref["R"]["alps"] - 1),
+                "dice_mean": float(np.mean(dice)),
+                "dice_min": float(np.min(dice)),
+                "fallbacks": fallbacks,
+            }
+            rows.append(row)
+            if frame == "template":
+                print(
+                    f"{row['param']:8s} {row['part']:6s} x{factor:<4g} "
+                    f"ALPS {row['alps_mean']:.3f} ({row['delta_pct']:+.2f}%) "
+                    f"dice {row['dice_mean']:.2f} fallback {fallbacks}",
+                    flush=True,
+                )
+    path = RESULTS / args.dataset / "sensitivity" / "sensitivity.csv"
+    write_rows(rows, path)
+    print(f"wrote {path}")
+
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -286,9 +373,14 @@ def collect():
             per = {}
             for r in read_rows(direct):
                 key = (r["method"], r["frame"])
-                per.setdefault(key, {"mean": _f(r["alps_mean"])})[r["hemisphere"]] = _f(
-                    r["alps"]
+                v = per.setdefault(
+                    key,
+                    {
+                        "mean": _f(r["alps_mean"]),
+                        "mean_u": _f(r.get("alps_mean_unweighted")),
+                    },
                 )
+                v[r["hemisphere"]] = _f(r["alps"])
             for (method, frame), v in per.items():
                 alps_rows.append(
                     {
@@ -302,6 +394,7 @@ def collect():
                         "alps_L": v.get("L", math.nan),
                         "alps_R": v.get("R", math.nan),
                         "alps_mean": v["mean"],
+                        "alps_mean_unweighted": v["mean_u"],
                     }
                 )
         tilt = base / "tilt" / "tilt.csv"
@@ -315,12 +408,56 @@ def collect():
     return alps_rows, reg_rows
 
 
-def markdown(alps_rows, reg_rows):
+def collect_sensitivity():
+    rows = []
+    for name in DATASETS:
+        path = RESULTS / name / "sensitivity" / "sensitivity.csv"
+        if path.exists():
+            rows += [{"dataset": name, **r} for r in read_rows(path)]
+    return rows
+
+
+def sensitivity_markdown(rows):
+    """One table per dataset: template-frame ALPS change per perturbation."""
+    lines = []
+    for name in DATASETS:
+        rs = [r for r in rows if r["dataset"] == name and r["frame"] == "template"]
+        if not rs:
+            continue
+        base = next(r for r in rs if r["param"] == "baseline")
+        factors = sorted({_f(r["factor"]) for r in rs if r["param"] != "baseline"})
+        lines += [
+            f"## Soft-score sensitivity: {name} (`data`, template frame)",
+            "",
+            f"Baseline ALPS {_fmt(_f(base['alps_mean']))} "
+            f"(L {_fmt(_f(base['alps_L']))}, R {_fmt(_f(base['alps_R']))}). "
+            "Cells: change of the mean ALPS in % (smallest ROI Dice against the "
+            "baseline; F = number of hemispheres that fell back).",
+            "",
+            "| score | part | " + " | ".join(f"x{f:g}" for f in factors) + " |",
+            "|---|---|" + "---|" * len(factors),
+        ]
+        table = {(r["param"], r["part"], _f(r["factor"])): r for r in rs}
+        for param in A.SOFT_SCORES:
+            for part in ("centre", "width"):
+                cells = []
+                for f in factors:
+                    r = table.get((param, part, f))
+                    if r is None:
+                        cells.append("—")
+                        continue
+                    cell = f"{_f(r['delta_pct']):+.1f} ({_f(r['dice_min']):.2f})"
+                    if int(r["fallbacks"]):
+                        cell += f" F{r['fallbacks']}"
+                    cells.append(cell)
+                lines.append(f"| {param} | {part} | " + " | ".join(cells) + " |")
+        lines.append("")
+    return lines
+
+
+def markdown(alps_rows, reg_rows, *, sens_rows=()):
     cols = [
-        ("sphere", "bvec"),
-        ("sphere", "template"),
-        ("data", "bvec"),
-        ("data", "template"),
+        (method, frame) for method in A.ROI_METHODS for frame in ("bvec", "template")
     ]
     head = " | ".join(f"{m} {f}" for m, f in cols)
     lines = ["<!-- generated by `python alps/experiments.py summary` -->", ""]
@@ -402,20 +539,20 @@ def markdown(alps_rows, reg_rows):
                 f"{r['sv_min']}–{r['sv_max']} | {r['secs']} |"
             )
         lines.append("")
+    lines += sensitivity_markdown(sens_rows)
     return "\n".join(lines)
 
 
 def cmd_summary(args):
     alps_rows, reg_rows = collect()
+    sens_rows = collect_sensitivity()
+    if sens_rows:
+        write_rows(sens_rows, RESULTS / "summary_sensitivity.csv")
     if alps_rows:
-        fields = list(alps_rows[0])
-        write_rows(
-            [{k: r.get(k, "") for k in fields} for r in alps_rows],
-            RESULTS / "summary_alps.csv",
-        )
+        write_rows(alps_rows, RESULTS / "summary_alps.csv")
     if reg_rows:
         write_rows(reg_rows, RESULTS / "summary_regdiag.csv")
-    text = markdown(alps_rows, reg_rows)
+    text = markdown(alps_rows, reg_rows, sens_rows=sens_rows)
     (RESULTS / "tables.md").write_text(text)
     print(text)
 
@@ -454,6 +591,13 @@ def build_parser():
         "--variants", nargs="+", choices=list(REG_VARIANTS), default=list(REG_VARIANTS)
     )
     sp.set_defaults(func=cmd_regdiag)
+
+    sp = sub.add_parser(
+        "sensitivity", help="Soft-score sensitivity of the data method."
+    )
+    add_dataset(sp)
+    sp.add_argument("--factors", type=float, nargs="+", default=[0.8, 0.9, 1.1, 1.2])
+    sp.set_defaults(func=cmd_sensitivity)
 
     sp = sub.add_parser("summary", help="Collect results into tables.")
     sp.set_defaults(func=cmd_summary)
