@@ -106,10 +106,13 @@ python alps/experiments.py summary
   ±20% (`--factors`). It fits and registers once, then reruns only the ROI step. It reports
   the ALPS change, the ROI Dice against the baseline and the fallbacks.
 - `bootstrap` measures the noise floor of each method. It fits the tensor once and
-  makes replicates by a wild bootstrap: each residual of the fit keeps its size and gets
+  makes replicates by a wild bootstrap: each leverage-corrected residual of the fit gets
   a random sign. For each replicate it refits the tensor in a central work region and
   reruns the ROI step; the registration stays fixed. It reports the SD and CV of ALPS,
-  the L/R difference and the ROI Dice against the original fit.
+  the L/R difference, the ROI Dice against the original fit and the failures per
+  hemisphere. Signs are independent between voxels, so the spread is a lower bound when
+  the noise is spatially correlated. It refuses to replace an existing result without
+  `--overwrite`.
 - `summary` writes `summary_alps.csv`, `summary_regdiag.csv`, `summary_sensitivity.csv`,
   `summary_bootstrap.csv` and `tables.md`.
 

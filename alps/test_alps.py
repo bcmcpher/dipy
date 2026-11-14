@@ -285,3 +285,41 @@ def test_wild_bootstrap_keeps_residual_magnitude():
     # Signs are random, so the replicate is unbiased around the prediction.
     flips = np.sign(boot - predicted) != np.sign(signal - predicted)
     assert 0.45 < flips.mean() < 0.55
+
+
+def test_wild_bootstrap_leverage_inflates_residuals():
+    from experiments import design_leverage, wild_bootstrap_signal
+
+    from dipy.core.gradients import gradient_table
+    from dipy.reconst.dti import TensorModel
+
+    rng = np.random.default_rng(2)
+    bvecs = rng.normal(size=(30, 3))
+    bvecs /= np.linalg.norm(bvecs, axis=1, keepdims=True)
+    bvals = np.r_[0, 0, np.full(28, 1000.0)]
+    bvecs[:2] = 0
+    model = TensorModel(gradient_table(bvals, bvecs=bvecs))
+    h = design_leverage(model)
+    # The trace of the hat matrix equals the number of parameters (7).
+    npt.assert_allclose(h.sum(), 7.0, atol=1e-8)
+    predicted = np.full((10, 1, 1, 30), 100.0)
+    signal = predicted + 1.0
+    boot = wild_bootstrap_signal(signal, predicted, rng, leverage=h)
+    expected = np.broadcast_to(1.0 / np.sqrt(1.0 - h), boot.shape)
+    npt.assert_allclose(np.abs(boot - predicted), expected)
+
+
+def test_roi_stability_flags_failures_of_both_methods():
+    from experiments import roi_stability
+
+    D, coords, affine, mask, _ = phantom()
+    base = run(D, coords, affine, mask)
+    D[...] = np.eye(3) * 0.7e-3
+    iso = run(D, coords, affine, mask)
+    _, failed = roi_stability(iso, base, "data-template")
+    assert failed == {"L": True, "R": True}
+    _, failed = roi_stability(iso, base, "data-legacy-template")
+    assert failed == {"L": True, "R": True}
+    dice, failed = roi_stability(base, base, "sphere")
+    assert failed == {"L": False, "R": False}
+    assert dice == [1.0] * 4

@@ -208,7 +208,9 @@ As built (2026-11-13):
   the grown ROIs (code review).
 - [x] HBN tilt series with v2: no NaN or fallback, template CV 0.6%, L/R SD 2.3 points.
 - [x] `bootstrap` subcommand: wild (Rademacher) residual bootstrap on the signal scale,
-  no leverage correction; tensor refit in a template-space work region
+  residuals divided by sqrt(1 − h) with the OLS leverage of the log-linear design
+  (approximation for WLS); voxels with a failed base fit are held fixed; signs are
+  independent between voxels, so the spread is a lower bound; tensor refit in a template-space work region
   (|x| ≤ 70, −50 ≤ y ≤ 30, −5 ≤ z ≤ 50 mm); registration fixed; replicate 0 reproduces
   the direct run. Default 50 replicates.
 - [x] Sherbrooke tilt series rerun with v2.

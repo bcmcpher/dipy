@@ -55,26 +55,33 @@ edit them by hand; regenerate them and paste the new `alps_results/tables.md`.
    - MD has a small effect: ≤ 2.5% at ±10% on every dataset (HBN 0.8%). The MD score is
      not what places the ROI next to the ventricle; the box and the planarity and
      orientation scores do that.
-8. **Noise floor (wild bootstrap, 50 replicates, registration fixed).** CV of the mean
-   ALPS (template frame):
+8. **Noise floor (wild bootstrap, 50 replicates, registration fixed).** Residuals are
+   leverage-corrected. Signs are independent between voxels, so spatially correlated
+   noise (interpolation in motion and eddy correction, parallel imaging) is not
+   reproduced: these values are lower bounds. CV of the mean ALPS (template frame):
 
    | dataset | sphere | data-legacy | data |
    |---|---|---|---|
-   | hbn | 1.1% | 3.2% (1 NaN) | 2.0% |
-   | sherbrooke | 6.9% | 7.6% (1 NaN) | 7.5% |
-   | stanford | 1.0% | 3.2% (10 NaN) | 3.6% (10 fallbacks) |
+   | hbn | 1.1% | 3.1% (1 NaN) | 1.8% |
+   | sherbrooke | 7.3% | 7.8% (1 NaN) | 6.9% |
+   | stanford | 1.0% | 3.2% (13 NaN) | 3.8% (12 fallbacks) |
 
-   - `data` is noisier than `sphere` under measurement noise: its ROI moves between
+   - `data` is noisier than `sphere` on HBN and Stanford: its ROI moves between
      replicates (median smallest Dice 0.45 on HBN, ~0 on Sherbrooke). The sphere ROI is
      fixed, so only the tensor noise reaches it.
-   - Against this floor, the v2 tilt CV (HBN 0.6%, Sherbrooke 3.3%) is below the noise,
-     which meets the "tilt CV ≤ bootstrap CV" criterion. The 3.3% HBN sensitivity at ±10%
-     is about 1.6 bootstrap SDs, so the 0.3-point miss of the 3% criterion is within noise.
-   - The HBN L/R difference of `data` stays at −15.6% (SD 4.1) across replicates. It is
+   - The v2 tilt CV (HBN 0.6%, Sherbrooke 3.3%) is below this floor, so the tilt
+     criterion is met. The floor is a lower bound, which only strengthens that result.
+   - The 3.3% HBN sensitivity at ±10% is about 1.8 bootstrap SDs (0.028 on 1.549).
+     The 0.3-point miss of the 3% criterion is of the order of the noise, but the floor
+     is a lower bound, so this comparison is not conclusive.
+   - The HBN L/R difference of `data` stays at −15.3% (SD 4.4) across replicates. It is
      systematic (anatomy or placement), not noise.
-   - Stanford: the left hemisphere falls back to the sphere ROIs in 10 of 50 replicates.
-     Its association group is weak (7-voxel ROI at baseline). v1 returns NaN in the same
-     number of replicates.
+   - Stanford: the left hemisphere fails in 11 of 50 replicates and the right in 1 (v2
+     falls back to the sphere ROIs; v1 returns NaN in 12 and 1). The left association
+     group is weak (7-voxel ROI at baseline).
+   - v1 bug, kept for comparison: when the median x of the candidates falls between two
+     distant voxels, its median-x window can drop every candidate, which gives an empty
+     ROI and NaN although a centre was found (3 Sherbrooke replicates).
    - Sherbrooke is noisy for every method (~7%). Its 2 mm b = 1000 shell gives low SNR in
      8-voxel ROIs; single-subject values there are not reliable.
 9. **Sherbrooke tilt series (v2).** Template-frame CV 3.3%, against 4.5% for spheres and
@@ -89,7 +96,7 @@ edit them by hand; regenerate them and paste the new `alps_results/tables.md`.
 - `data` trades fixed-ROI noise robustness for placement: its bootstrap CV is about
   twice the sphere's on HBN and Stanford. Larger ROIs (`radius`), or averaging the
   weights over replicates, may reduce it.
-- Stanford left-hemisphere fallbacks under noise (20% of replicates).
+- Stanford left-hemisphere fallbacks under noise (22% of replicates).
 - Periventricular white-matter hyperintensities raise MD and may lower the MD weight in
   damaged tissue, which would bias ALPS upwards in patients. Free-water fraction
   (Phase 2) is the planned alternative to the MD score.
@@ -203,39 +210,39 @@ Baseline ALPS 1.328 (L 1.329, R 1.327). Cells: change of the mean ALPS in % (sma
 
 ## Wild bootstrap: sherbrooke (50 replicates; registration fixed)
 
-Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0.
+Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0; failed L/R: replicates in which the hemisphere fell back (`data`) or found no ROI (`data-legacy`). Residuals are leverage-corrected; signs are independent between voxels, so the spread is a lower bound for spatially correlated noise.
 
-| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | fallbacks |
+| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | failed L/R |
 |---|---|---|---|---|---|---|---|---|---|
-| sphere | bvec | 1.838 | 0.129 | 7.1% | 8.1% | 9.9% | -27.2 (11.2) | 1.00 | 0 |
-| sphere | template | 1.814 | 0.122 | 6.9% | 8.2% | 9.4% | -19.8 (11.0) | 1.00 | 0 |
-| data-legacy | bvec | 1.371 | 0.144 | 10.2% | 14.9% | 13.2% | -24.2 (18.2) | 0.00 | 0 |
-| data-legacy | template | 1.392 | 0.104 | 7.6% (1 NaN) | 12.2% | 10.9% | -15.4 (17.0) | 0.00 | 0 |
-| data | bvec | 1.516 | 0.095 | 6.7% | 11.0% | 7.8% | -12.8 (13.0) | 0.12 | 0 |
-| data | template | 1.609 | 0.102 | 7.5% | 11.2% | 8.5% | -8.1 (13.1) | 0.00 | 0 |
+| sphere | bvec | 1.838 | 0.136 | 7.5% | 8.5% | 10.4% | -27.5 (11.8) | 1.00 | 0/0 of 50 |
+| sphere | template | 1.814 | 0.128 | 7.3% | 8.6% | 9.9% | -20.1 (11.6) | 1.00 | 0/0 of 50 |
+| data-legacy | bvec | 1.371 | 0.148 | 10.5% (2 NaN) | 16.6% | 14.5% | -19.0 (22.5) | 0.00 | 0/2 of 50 |
+| data-legacy | template | 1.392 | 0.106 | 7.8% (1 NaN) | 13.5% | 9.8% | -14.6 (17.7) | 0.00 | 0/1 of 50 |
+| data | bvec | 1.516 | 0.117 | 8.2% | 12.3% | 11.3% | -11.8 (16.6) | 0.12 | 0/1 of 50 |
+| data | template | 1.609 | 0.093 | 6.9% | 10.1% | 9.3% | -10.2 (13.8) | 0.00 | 0/0 of 50 |
 
 ## Wild bootstrap: hbn (50 replicates; registration fixed)
 
-Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0.
+Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0; failed L/R: replicates in which the hemisphere fell back (`data`) or found no ROI (`data-legacy`). Residuals are leverage-corrected; signs are independent between voxels, so the spread is a lower bound for spatially correlated noise.
 
-| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | fallbacks |
+| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | failed L/R |
 |---|---|---|---|---|---|---|---|---|---|
-| sphere | bvec | 1.738 | 0.018 | 1.1% | 1.2% | 1.8% | -1.5 (2.2) | 1.00 | 0 |
-| sphere | template | 1.712 | 0.018 | 1.1% | 1.2% | 1.8% | -2.6 (2.3) | 1.00 | 0 |
-| data-legacy | bvec | 1.561 | 0.052 | 3.2% | 4.1% | 4.9% | -10.2 (6.5) | 0.00 | 0 |
-| data-legacy | template | 1.531 | 0.050 | 3.2% (1 NaN) | 4.1% | 4.6% | -11.4 (6.2) | 0.00 | 0 |
-| data | bvec | 1.611 | 0.036 | 2.2% | 2.9% | 3.4% | -14.2 (4.4) | 0.45 | 0 |
-| data | template | 1.549 | 0.030 | 2.0% | 2.6% | 3.1% | -15.6 (4.1) | 0.45 | 0 |
+| sphere | bvec | 1.738 | 0.019 | 1.1% | 1.3% | 1.9% | -1.5 (2.3) | 1.00 | 0/0 of 50 |
+| sphere | template | 1.712 | 0.019 | 1.1% | 1.3% | 1.9% | -2.6 (2.4) | 1.00 | 0/0 of 50 |
+| data-legacy | bvec | 1.561 | 0.053 | 3.3% | 4.1% | 4.9% | -10.3 (6.4) | 0.00 | 0/0 of 50 |
+| data-legacy | template | 1.531 | 0.049 | 3.1% (1 NaN) | 4.1% | 4.5% | -11.4 (6.1) | 0.00 | 0/1 of 50 |
+| data | bvec | 1.611 | 0.033 | 2.1% | 2.7% | 3.5% | -13.6 (4.8) | 0.45 | 0/0 of 50 |
+| data | template | 1.549 | 0.028 | 1.8% | 2.5% | 3.1% | -15.3 (4.4) | 0.45 | 0/0 of 50 |
 
 ## Wild bootstrap: stanford (50 replicates; registration fixed)
 
-Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0.
+Replicate 0 is the fit to the data. SD and CV over the replicates; L-R: L/R difference in % (mean and SD); Dice: median of the smallest ROI Dice against replicate 0; failed L/R: replicates in which the hemisphere fell back (`data`) or found no ROI (`data-legacy`). Residuals are leverage-corrected; signs are independent between voxels, so the spread is a lower bound for spatially correlated noise.
 
-| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | fallbacks |
+| method | frame | ALPS (rep 0) | SD | CV | CV L | CV R | L-R mean (SD) | Dice | failed L/R |
 |---|---|---|---|---|---|---|---|---|---|
-| sphere | bvec | 1.498 | 0.015 | 1.0% | 1.5% | 1.7% | +3.5 (2.6) | 1.00 | 0 |
-| sphere | template | 1.506 | 0.015 | 1.0% | 1.5% | 1.7% | +4.3 (2.6) | 1.00 | 0 |
-| data-legacy | bvec | 1.358 | 0.035 | 2.5% (10 NaN) | 3.8% | 3.4% | -0.3 (5.3) | 0.40 | 0 |
-| data-legacy | template | 1.331 | 0.043 | 3.2% (10 NaN) | 5.5% | 2.9% | -1.4 (6.1) | 0.20 | 0 |
-| data | bvec | 1.347 | 0.045 | 3.2% | 5.9% | 2.0% | +1.8 (5.8) | 0.62 | 10 |
-| data | template | 1.328 | 0.049 | 3.6% | 6.8% | 1.8% | +3.0 (6.8) | 0.69 | 10 |
+| sphere | bvec | 1.498 | 0.015 | 1.0% | 1.6% | 1.7% | +3.5 (2.6) | 1.00 | 0/0 of 50 |
+| sphere | template | 1.506 | 0.015 | 1.0% | 1.6% | 1.7% | +4.3 (2.6) | 1.00 | 0/0 of 50 |
+| data-legacy | bvec | 1.358 | 0.038 | 2.7% (12 NaN) | 4.1% | 3.6% | -0.2 (5.6) | 0.40 | 11/1 of 50 |
+| data-legacy | template | 1.331 | 0.044 | 3.2% (13 NaN) | 5.0% | 3.5% | -2.6 (5.8) | 0.19 | 12/1 of 50 |
+| data | bvec | 1.347 | 0.046 | 3.3% | 6.0% | 2.4% | +1.9 (6.1) | 0.62 | 11/1 of 50 |
+| data | template | 1.328 | 0.052 | 3.8% | 7.0% | 2.4% | +3.1 (7.2) | 0.56 | 11/1 of 50 |

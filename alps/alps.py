@@ -1309,13 +1309,34 @@ def build_parser():
         default=None,
         help="Drop volumes with b above this value (e.g. 1100 to keep b=1000).",
     )
-    p.add_argument("--b0-threshold", type=float, default=50.0)
+    p.add_argument("--b0-threshold", type=float, default=B0_THRESHOLD)
     p.add_argument("--no-qc", action="store_true", help="Skip the QC figure.")
     return p
 
 
+#: b-value (s/mm^2) at or below which a volume counts as b0.
+B0_THRESHOLD = 50.0
+
+
+def tensor_model(bvals, bvecs, *, b0_threshold=B0_THRESHOLD, **kwargs):
+    """Gradient table and the WLS ``TensorModel`` used by the pipeline."""
+    from dipy.core.gradients import gradient_table
+    from dipy.reconst.dti import TensorModel
+
+    gtab = gradient_table(bvals, bvecs=bvecs, b0_threshold=b0_threshold)
+    return gtab, TensorModel(gtab, **kwargs)
+
+
 def fit_and_register(
-    data, affine, bvals, bvecs, *, mask=None, b0_threshold=50.0, reg="affine"
+    data,
+    affine,
+    bvals,
+    bvecs,
+    *,
+    mask=None,
+    b0_threshold=B0_THRESHOLD,
+    reg="affine",
+    fit=True,
 ):
     """Brain mask, tensor fit and template registration of a DWI.
 
@@ -1328,21 +1349,21 @@ def fit_and_register(
         Default: ``median_otsu`` on the b0 volumes.
     b0_threshold : float, optional
     reg : {"affine", "syn"}, optional
+    fit : bool, optional
+        Fit the tensor. With ``False`` the first output is ``None``.
 
     Returns
     -------
-    fit : TensorFit
+    fit : TensorFit or None
     mask : ndarray of bool
     registration : dict
         Output of :func:`register_to_template`.
     b0 : ndarray
         Mean b0 volume.
     """
-    from dipy.core.gradients import gradient_table
-    from dipy.reconst.dti import TensorModel
     from dipy.segment.mask import median_otsu
 
-    gtab = gradient_table(bvals, bvecs=bvecs, b0_threshold=b0_threshold)
+    gtab, model = tensor_model(bvals, bvecs, b0_threshold=b0_threshold)
     b0_idx = np.flatnonzero(gtab.b0s_mask)
     b0 = data[..., b0_idx].mean(axis=-1)
     if mask is None:
@@ -1351,12 +1372,14 @@ def fit_and_register(
         )
         logger.info("Computed brain mask with median_otsu")
 
-    logger.info("Fitting DTI on %d volumes", data.shape[-1])
-    fit = TensorModel(gtab).fit(data, mask=mask)
+    tensor_fit = None
+    if fit:
+        logger.info("Fitting DTI on %d volumes", data.shape[-1])
+        tensor_fit = model.fit(data, mask=mask)
 
     logger.info("Registering mean b0 to the MNI template (%s)", reg)
     registration = register_to_template(b0, affine, mask, method=reg)
-    return fit, mask, registration, b0
+    return tensor_fit, mask, registration, b0
 
 
 def main(*, argv=None):
